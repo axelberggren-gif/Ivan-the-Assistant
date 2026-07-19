@@ -11,8 +11,8 @@ import type { BookCheckResult, Classification, ReasonCode } from '../types'
 const FRAMES: Record<string, string[]> = {
   book: [
     'Book move — {detail}',
-    '{san} is theory here. {detail}',
-    'Right on track: {san} is a known move. {detail}',
+    '{san} is theory here — {detail}',
+    'Right on track: {san} is a known move — {detail}',
   ],
   good_ok: [
     'Solid — {reason}.',
