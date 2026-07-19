@@ -63,6 +63,7 @@ const mainlines: Line[] = [
 const trickLines: TrickLine[] = [
   {
     trapId: 'elephant-trap',
+    severity: 'losing',
     name: 'Elephant Trap (QGD)',
     moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'Bg5', 'Nbd7', 'cxd5', 'exd5'],
     ideas: {
@@ -78,6 +79,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'lasker-trap-albin',
+    severity: 'losing',
     name: 'Lasker Trap (Albin Countergambit)',
     moves: ['d4', 'd5', 'c4', 'e5', 'dxe5', 'd4'],
     ideas: {
@@ -93,6 +95,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'cambridge-springs-trap',
+    severity: 'losing',
     name: 'Cambridge Springs Trap (QGD)',
     moves: ['d4', 'd5', 'c4', 'e6', 'Nc3', 'Nf6', 'Bg5', 'Nbd7', 'e3', 'c6', 'Nf3', 'Qa5'],
     ideas: {

@@ -29,6 +29,12 @@ export interface Line {
 export interface TrickLine extends Line {
   trapId: string
   /**
+   * How bad falling for it is: 'losing' traps stop the session
+   * (stop-and-explain); 'minor' traps (e.g. lose a pawn) deliver their
+   * authored explanation inline and play continues.
+   */
+  severity: 'losing' | 'minor'
+  /**
    * `moves` ends with the OPPONENT's bait move (so after `moves` it is the
    * user's turn). `wrongReply` is the natural-looking user reply that loses.
    */

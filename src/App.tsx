@@ -37,6 +37,11 @@ export default function App() {
   const [{ deps, error }] = useState(buildDeps)
   const store = useMemo(() => (deps ? createSessionStore(deps) : null), [deps])
 
+  // Dev-only handle for driving/inspecting the session from the console.
+  if (import.meta.env.DEV && store) {
+    ;(window as unknown as { __session?: unknown }).__session = store
+  }
+
   if (!deps || !store) {
     return (
       <div className="app">

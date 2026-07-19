@@ -23,6 +23,8 @@ export default function TrainerScreen() {
   const opening = useSession((s) => s.opening)
   const userColor = useSession((s) => s.userColor)
   const backToPicker = useSession((s) => s.backToPicker)
+  const notice = useSession((s) => s.notice)
+  const sessionSummary = useSession((s) => s.sessionSummary)
 
   const busy = status === 'engine_thinking' || status === 'assessing'
 
@@ -50,10 +52,11 @@ export default function TrainerScreen() {
             {busy && <span className="spinner" aria-hidden="true" />}
             {STATUS_TEXT[status]}
           </div>
+          {notice && <div className="coach-notice">{notice}</div>}
         </div>
 
         <DevelopmentMeter />
-        {status === 'out_of_book' && <SummaryPanel />}
+        {sessionSummary && <SummaryPanel />}
         <FeedbackLog />
       </aside>
 

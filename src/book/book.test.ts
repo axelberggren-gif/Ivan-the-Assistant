@@ -8,6 +8,7 @@ import { createBook } from './index'
 // ---------------------------------------------------------------------------
 
 const trap: TrickLine = {
+  severity: 'losing',
   // Shares the ["e4","e5"] prefix with the mainline, then diverges with Qh5
   // (bait move: after `moves` it is the user's turn).
   moves: ['e4', 'e5', 'Qh5'],

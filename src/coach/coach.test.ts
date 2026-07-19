@@ -151,6 +151,7 @@ describe('perspective and mate handling', () => {
 describe('trap handling', () => {
   const trap: TrickLine = {
     trapId: 'fishing-pole',
+    severity: 'losing',
     name: 'the Fishing Pole trap',
     moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'Nf6', 'O-O', 'Ng4'],
     wrongReply: 'h3',
@@ -180,6 +181,29 @@ describe('trap handling', () => {
     expect(result.fix).toBe(trap.fix)
     expect(result.comment).toContain('bait')
     expect(result.comment).toContain('Fishing Pole')
+  })
+
+  it('minor-severity traps teach inline without stopping the game', () => {
+    const minorTrap: TrickLine = { ...trap, severity: 'minor' }
+    const historySan = [...minorTrap.moves, minorTrap.wrongReply]
+    const input = baseInput({
+      historySan,
+      san: 'h3',
+      fenBefore: fenAfterMoves(minorTrap.moves),
+      fenAfter: fenAfterMoves(historySan),
+      trap: minorTrap,
+      evalBefore: analysis(fenAfterMoves(minorTrap.moves), 'd3', [line(20)]),
+      evalAfter: analysis(fenAfterMoves(historySan), 'h5', [line(-100, ['h5'])]),
+    })
+    const result = coach.assessMove(input)
+    expect(result.classification).toBe('mistake')
+    expect(result.stopGame).toBe(false)
+    expect(result.reasonCodes).toEqual(['falls_for_trap'])
+    expect(result.refutationSan).toBeUndefined()
+    // The authored coaching arrives inline via the comment instead.
+    expect(result.comment).toContain(minorTrap.explanation)
+    expect(result.comment).toContain(minorTrap.fix)
+    expect(result.bestMoveSan).toBe(minorTrap.fixMove)
   })
 })
 

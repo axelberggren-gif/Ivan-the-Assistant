@@ -56,6 +56,10 @@ export interface SessionState {
   lastAssessment: MoveAssessment | null
   /** Best-move arrow shown after an inaccuracy/mistake */
   hintArrow: HintArrow | null
+  /** Transient coach note: out-of-book announcement or fix-move reminder */
+  notice: string | null
+  /** When set, the next user move must be this SAN (fix-move-gated retry) */
+  requiredFixSan: string | null
   error: string | null
   /** True while engine.init() is in flight after picking an opening */
   engineInitializing: boolean
@@ -82,8 +86,8 @@ export type SessionStore = StoreApi<SessionState>
 // ---------------------------------------------------------------------------
 
 const START_FEN = new Chess().fen()
-/** Past this many plies with an empty book we end the session rather than free-play. */
-const OUT_OF_BOOK_PLY = 20
+/** Coached play continues past book until this many plies (~move 25). */
+const SESSION_END_PLY = 50
 const REFUTATION_MOVE_MS = 900
 const ANALYZE_OPTS = { depth: 12, multiPv: 3, movetimeMs: 900 } as const
 const OPPONENT_OPTS = { skillLevel: 6, movetimeMs: 600 } as const
@@ -150,6 +154,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
   let pendingTrapIds = new Set<string>()
   let trapsAvoided = 0
   let trapsHit = 0
+  /** The out-of-book notice is shown at most once per session. */
+  let leftBookAnnounced = false
 
   /** History (from the start position) before the game-losing move. */
   let preBlunderHistory: string[] = []
@@ -190,33 +196,45 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
       })
     }
 
-    async function endOutOfBook(myEpoch: number): Promise<void> {
-      let message: string
+    /** End the session (move cap or game over) with a summary. */
+    async function endSession(myEpoch: number, reason: string): Promise<void> {
       let cp = get().evalCp
       try {
         const evalNow = await analyzeCached(chess.fen())
         if (epoch !== myEpoch) return
         cp = whiteCp(evalNow)
-        message = deps.coach.outOfBookSummary(get().historySan, get().userColor, evalNow)
-      } catch (e) {
-        if (epoch !== myEpoch) return
-        message =
-          'You have reached the end of the book line. Nice work — review your moves in the log.'
-        set({ error: errMsg(e, 'Final position analysis failed') })
+      } catch {
+        /* keep the last known eval */
       }
       const counts = emptyCounts()
       for (const f of get().feedback) counts[f.classification]++
       set({
-        status: 'out_of_book',
+        status: 'complete',
         evalCp: cp,
         sessionSummary: {
-          message,
+          message: reason,
           counts,
           trapsAvoided,
           trapsHit,
           userMoves: get().feedback.length,
         },
       })
+    }
+
+    /** One-time notice when play leaves known theory; coaching continues. */
+    async function announceOutOfBook(myEpoch: number): Promise<void> {
+      if (leftBookAnnounced) return
+      leftBookAnnounced = true
+      try {
+        const evalNow = await analyzeCached(chess.fen())
+        if (epoch !== myEpoch) return
+        set({
+          notice: deps.coach.outOfBookSummary(get().historySan, get().userColor, evalNow),
+        })
+      } catch {
+        if (epoch !== myEpoch) return
+        set({ notice: "You're out of known theory — the coach keeps watching from here." })
+      }
     }
 
     async function opponentTurn(myEpoch: number): Promise<void> {
@@ -232,10 +250,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
           const pick = weightedSample(options)
           san = pick.san
           if (pick.kind === 'trick' && pick.trapId) baitedTrapId = pick.trapId
-        } else if (history.length >= OUT_OF_BOOK_PLY) {
-          await endOutOfBook(myEpoch)
-          return
         } else {
+          void announceOutOfBook(myEpoch)
           const reply = await deps.engine.opponentMove(chess.fen(), OPPONENT_OPTS)
           if (epoch !== myEpoch) return
           san = reply.san
@@ -246,15 +262,20 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
         const newHistory = [...history, mv.san]
         set({ fen: chess.fen(), historySan: newHistory })
 
-        // Warm the analysis of the position the user is about to move from.
-        prefetch(chess.fen(), myEpoch)
-
-        // Both sides out of theory? End politely rather than free-play (v1).
-        const userOptions = deps.book.continuations(openingId, newHistory)
-        if (userOptions.length === 0) {
-          await endOutOfBook(myEpoch)
+        if (chess.isGameOver()) {
+          await endSession(myEpoch, 'The game ended — see how the session went below.')
           return
         }
+        if (newHistory.length >= SESSION_END_PLY) {
+          await endSession(
+            myEpoch,
+            `Session complete — you played to move ${Math.ceil(SESSION_END_PLY / 2)} under coaching. Review the log and numbers below.`,
+          )
+          return
+        }
+
+        // Warm the analysis of the position the user is about to move from.
+        prefetch(chess.fen(), myEpoch)
 
         if (epoch !== myEpoch) return
         set({ status: 'playing' })
@@ -359,6 +380,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
           preBlunderHistory = historyBefore
           set({ preBlunderFen: fenBefore })
           startRefutation(myEpoch, assessment.refutationSan ?? [])
+        } else if (chess.isGameOver()) {
+          await endSession(myEpoch, 'The game ended — see how the session went below.')
         } else {
           await opponentTurn(myEpoch)
         }
@@ -387,6 +410,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
       devScore: null,
       lastAssessment: null,
       hintArrow: null,
+      notice: null,
+      requiredFixSan: null,
       error: null,
       engineInitializing: false,
       refutationStep: -1,
@@ -406,6 +431,7 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
         pendingTrapIds = new Set()
         trapsAvoided = 0
         trapsHit = 0
+        leftBookAnnounced = false
         preBlunderHistory = []
         set({
           status: 'playing',
@@ -419,6 +445,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
           devScore: null,
           lastAssessment: null,
           hintArrow: null,
+          notice: null,
+          requiredFixSan: null,
           error: null,
           engineInitializing: true,
           refutationStep: -1,
@@ -461,6 +489,21 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
         } catch {
           return false // illegal — board snaps back
         }
+
+        // Fix-move gate: after a retry, the lesson must be played before
+        // anything else. Bounce other moves with a reminder + arrow.
+        if (st.requiredFixSan) {
+          const strip = (s: string) => s.replace(/[+#]/g, '')
+          if (strip(mv.san) !== strip(st.requiredFixSan)) {
+            chess.undo()
+            set({
+              notice: `Play the fix first: ${st.requiredFixSan} — that's the lesson from the last stop.`,
+              hintArrow: arrowFor(fenBefore, st.requiredFixSan),
+            })
+            return false
+          }
+        }
+
         const fenAfter = chess.fen()
         const myEpoch = epoch
         set({
@@ -468,6 +511,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
           fen: fenAfter,
           historySan: [...historyBefore, mv.san],
           hintArrow: null,
+          notice: null,
+          requiredFixSan: null,
         })
         void assessUserMove(myEpoch, historyBefore, fenBefore, fenAfter, mv.san)
         return true
@@ -479,6 +524,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
         clearTimers()
         epoch++
         const myEpoch = epoch
+        // The lesson must be demonstrated: the next move has to be the fix.
+        const fixSan = st.lastAssessment?.bestMoveSan || null
         // Replay from the start so the internal game stays consistent.
         chess.reset()
         for (const san of preBlunderHistory) chess.move(san)
@@ -499,6 +546,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
           refutationStep: -1,
           preBlunderFen: null,
           devScore,
+          requiredFixSan: fixSan,
+          notice: fixSan ? `To continue, play the fix: ${fixSan}.` : null,
         })
         analyzeCached(chess.fen())
           .then((a) => {
@@ -519,6 +568,7 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
         pendingTrapIds = new Set()
         trapsAvoided = 0
         trapsHit = 0
+        leftBookAnnounced = false
         preBlunderHistory = []
         set({
           status: 'picking',
@@ -532,6 +582,8 @@ export function createSessionStore(deps: SessionDeps): SessionStore {
           devScore: null,
           lastAssessment: null,
           hintArrow: null,
+          notice: null,
+          requiredFixSan: null,
           error: null,
           engineInitializing: false,
           refutationStep: -1,

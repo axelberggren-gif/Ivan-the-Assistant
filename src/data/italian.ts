@@ -65,6 +65,7 @@ const mainlines: Line[] = [
 const trickLines: TrickLine[] = [
   {
     trapId: 'blackburne-shilling',
+    severity: 'losing',
     name: 'Blackburne Shilling Gambit',
     moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Nd4'],
     ideas: {
@@ -79,6 +80,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'traxler-counterattack',
+    severity: 'losing',
     name: 'Two Knights, Traxler Counterattack',
     moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Nf6', 'Ng5', 'Bc5'],
     ideas: {
@@ -93,6 +95,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'moeller-wrong-recapture',
+    severity: 'minor',
     name: 'Giuoco Piano, wrong recapture on c3',
     moves: [
       'e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'Bc5', 'c3', 'Nf6', 'd4', 'exd4',
@@ -110,6 +113,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'pseudo-legal-bg4',
+    severity: 'losing',
     name: 'Semi-Italian, fake Légal trap with ...Bg4',
     moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bc4', 'd6', 'Nc3', 'Bg4'],
     ideas: {

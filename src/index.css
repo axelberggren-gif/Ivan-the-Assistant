@@ -826,3 +826,16 @@ button {
   background: var(--border);
   border-radius: 999px;
 }
+
+/* ------------------------------------------------------------ coach notice */
+
+.coach-notice {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--accent-soft);
+  border: 1px solid rgba(217, 163, 90, 0.35);
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1.45;
+}

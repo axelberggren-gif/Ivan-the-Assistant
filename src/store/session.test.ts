@@ -159,16 +159,12 @@ describe('createSessionStore', () => {
     expect(store.getState().historySan).toEqual([])
   })
 
-  it('ends out_of_book with a summary when the book runs dry', async () => {
+  it('continues coaching past the book with a one-time notice', async () => {
     const deps = makeDeps({
-      e4: [{ san: 'e5', kind: 'mainline', weight: 1 }],
       '': [{ san: 'e4', kind: 'mainline', weight: 1 }],
-      // Nothing after "e4 e5" for the user → both sides out of theory... but
-      // the user check happens for the coming user move; leave it non-empty
-      // then dry for the opponent's next turn:
+      e4: [{ san: 'e5', kind: 'mainline', weight: 1 }],
       'e4 e5': [{ san: 'Nf3', kind: 'mainline', weight: 1 }],
-      // After Nf3, opponent has no options and history < 20, so the engine
-      // fallback plays; then the user has no book options → out_of_book.
+      // After "e4 e5 Nf3" the book is dry → engine fallback plays on.
     })
     const store = createSessionStore(deps)
     store.getState().pickOpening(OPENING.id)
@@ -182,12 +178,53 @@ describe('createSessionStore', () => {
     await flush(16)
 
     const st = store.getState()
-    expect(st.status).toBe('out_of_book')
+    // Out of theory is NOT the end: the engine replies and play continues.
+    expect(st.status).toBe('playing')
     expect(engine.opponentMove).toHaveBeenCalledTimes(1)
+    expect(st.historySan).toEqual(['e4', 'e5', 'Nf3', 'a6'])
+    expect(st.sessionSummary).toBeNull()
+    expect(st.notice).toMatch(/out of book|healthy position/)
+
+    // The notice is one-time: the user's next move clears it for good.
+    store.getState().userMove('b1', 'c3')
+    await flush(16)
+    expect(store.getState().notice).toBeNull()
+    expect(store.getState().status).toBe('playing')
+  })
+
+  it('ends the session as complete when the game is over (draw by repetition)', async () => {
+    // Empty book: engine fallback replies. Knight/rook shuffles reach a
+    // threefold repetition within a few cycles → the game-over guard ends
+    // the session with a summary instead of asking the engine for a move
+    // in a finished game.
+    const engineMoves = ['a6', 'Ra7', 'Ra8']
+    let engineIdx = 0
+    engine.opponentMove = vi.fn(async () => {
+      const san = engineIdx === 0 ? engineMoves[0] : engineMoves[1 + ((engineIdx - 1) % 2)]
+      engineIdx++
+      return { san, uci: '' }
+    })
+    const deps = makeDeps({})
+    const store = createSessionStore(deps)
+    store.getState().pickOpening(OPENING.id)
+    await flush()
+
+    const userMoves: Array<[string, string]> = [
+      ['g1', 'f3'],
+      ['f3', 'g1'],
+    ]
+    let i = 0
+    while (store.getState().status === 'playing' && i < 30) {
+      const [from, to] = userMoves[i % 2]
+      expect(store.getState().userMove(from, to)).toBe(true)
+      await flush(16)
+      i++
+    }
+
+    const st = store.getState()
+    expect(st.status).toBe('complete')
     expect(st.sessionSummary).not.toBeNull()
-    expect(st.sessionSummary?.message).toMatch(/out of book/)
-    expect(st.sessionSummary?.counts.book).toBe(2)
-    expect(st.sessionSummary?.userMoves).toBe(2)
+    expect(st.sessionSummary?.message).toMatch(/game ended/)
   })
 
   it('stops the game on a blunder, animates the refutation, and supports retry', async () => {
@@ -198,6 +235,7 @@ describe('createSessionStore', () => {
             classification: 'blunder',
             cpLoss: 500,
             stopGame: true,
+            bestMoveSan: 'Nf3',
             refutationSan: ['Qh4'],
             explanation: 'The king walks into the open.',
             fix: 'Develop a piece instead.',
@@ -248,6 +286,22 @@ describe('createSessionStore', () => {
     expect(st.historySan).toEqual(['e4', 'e5'])
     expect(st.feedback).toHaveLength(1)
     expect(st.lastAssessment).toBeNull()
+
+    // Fix-move gate: the retry demands the lesson (Nf3) before anything else.
+    expect(st.requiredFixSan).toBe('Nf3')
+    expect(st.notice).toMatch(/Nf3/)
+    expect(store.getState().userMove('b1', 'c3')).toBe(false) // bounced
+    st = store.getState()
+    expect(st.historySan).toEqual(['e4', 'e5']) // move was undone
+    expect(st.notice).toMatch(/Play the fix first/)
+    expect(st.hintArrow).toEqual({ from: 'g1', to: 'f3' })
+
+    // Playing the fix clears the gate and the session flows on.
+    expect(store.getState().userMove('g1', 'f3')).toBe(true)
+    st = store.getState()
+    expect(st.requiredFixSan).toBeNull()
+    expect(st.notice).toBeNull()
+    expect(st.historySan).toEqual(['e4', 'e5', 'Nf3'])
   })
 
   it('surfaces engine init failures and returns to the picker', async () => {

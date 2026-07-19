@@ -70,6 +70,7 @@ const mainlines: Line[] = [
 const trickLines: TrickLine[] = [
   {
     trapId: 'sicilian-wayward-queen',
+    severity: 'minor',
     name: 'Early Qh5 cheese',
     moves: ['e4', 'c5', 'Qh5'],
     wrongReply: 'g6',
@@ -83,6 +84,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'sicilian-morra-nf6-e5',
+    severity: 'losing',
     name: 'Smith-Morra, premature ...Nf6',
     moves: ['e4', 'c5', 'd4', 'cxd4', 'c3', 'dxc3', 'Nxc3', 'Nc6', 'Nf3', 'd6', 'Bc4'],
     wrongReply: 'Nf6',
@@ -96,6 +98,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'sicilian-magnus-smith',
+    severity: 'losing',
     name: 'Magnus Smith trap (Sozin vs ...g6)',
     moves: ['e4', 'c5', 'Nf3', 'Nc6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'd6', 'Bc4', 'g6', 'Nxc6', 'bxc6', 'e5'],
     wrongReply: 'dxe5',
@@ -109,6 +112,7 @@ const trickLines: TrickLine[] = [
   },
   {
     trapId: 'sicilian-alapin-qa4-fork',
+    severity: 'losing',
     name: 'Alapin, poisoned d4-pawn',
     moves: ['e4', 'c5', 'c3', 'd5', 'exd5', 'Qxd5', 'd4', 'Nc6', 'Nf3', 'Bg4', 'Be2', 'cxd4', 'cxd4'],
     wrongReply: 'Nxd4',

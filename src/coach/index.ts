@@ -44,8 +44,21 @@ function assessMove(input: AssessMoveInput): MoveAssessment {
   const cpLoss = computeCpLoss(evalBefore, evalAfter, userColor)
 
   // (a) Authored trap content always wins over generic engine text.
+  // Severity decides the consequence: 'losing' traps stop the session,
+  // 'minor' traps teach inline and play continues.
   if (input.trap) {
     const label = input.trap.name ?? 'a known trap in this opening'
+    if (input.trap.severity === 'minor') {
+      return {
+        san,
+        classification: 'mistake',
+        cpLoss,
+        reasonCodes: ['falls_for_trap'],
+        bestMoveSan: input.trap.fixMove,
+        comment: `You took the bait — ${label}. ${input.trap.explanation} ${input.trap.fix}`,
+        stopGame: false,
+      }
+    }
     return {
       san,
       classification: 'blunder',
