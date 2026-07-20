@@ -6,8 +6,14 @@ import { createCoach } from './coach'
 import { openings } from './data'
 import { createSessionStore } from './store/session'
 import { SessionStoreContext, useSession } from './store/context'
+import { createChesscomClient } from './insights/chesscom'
+import { createInsightsStore, type InsightsStore } from './store/insights'
+import { InsightsStoreContext } from './store/insightsContext'
 import OpeningPicker from './components/OpeningPicker'
 import TrainerScreen from './components/TrainerScreen'
+import InsightsScreen from './components/InsightsScreen'
+
+type View = 'train' | 'insights'
 
 interface DepsResult {
   deps: SessionDeps | null
@@ -32,14 +38,29 @@ function buildDeps(): DepsResult {
   }
 }
 
+/** Insights is optional: if it fails to initialise, the trainer still works. */
+function buildInsightsStore(): InsightsStore | null {
+  try {
+    return createInsightsStore(createChesscomClient())
+  } catch {
+    return null
+  }
+}
+
 export default function App() {
-  // Instantiate deps and the store exactly once for the app's lifetime.
+  // Instantiate deps and the stores exactly once for the app's lifetime.
   const [{ deps, error }] = useState(buildDeps)
+  const [insightsStore] = useState(buildInsightsStore)
   const store = useMemo(() => (deps ? createSessionStore(deps) : null), [deps])
 
-  // Dev-only handle for driving/inspecting the session from the console.
+  const [view, setView] = useState<View>('train')
+
+  // Dev-only handles for driving/inspecting the stores from the console.
   if (import.meta.env.DEV && store) {
     ;(window as unknown as { __session?: unknown }).__session = store
+  }
+  if (import.meta.env.DEV && insightsStore) {
+    ;(window as unknown as { __insights?: unknown }).__insights = insightsStore
   }
 
   if (!deps || !store) {
@@ -58,14 +79,42 @@ export default function App() {
     )
   }
 
+  // "Train it now" from the insights dashboard: switch to the trainer and, if
+  // no session is in progress (status 'picking'), start the opening directly.
+  // If a session IS running we do NOT call pickOpening — it would silently
+  // reset the user's game mid-move; we just switch views and the picker's
+  // recommendation banner offers the same one-click start once they're back.
+  const handleTrain = (openingId: string) => {
+    if (store.getState().status === 'picking') {
+      store.getState().pickOpening(openingId)
+    }
+    setView('train')
+  }
+
+  const shell = (
+    <Shell view={view} onSelectView={setView} onTrain={handleTrain} hasInsights={insightsStore !== null} />
+  )
+
   return (
     <SessionStoreContext.Provider value={store}>
-      <Shell />
+      {insightsStore ? (
+        <InsightsStoreContext.Provider value={insightsStore}>
+          {shell}
+        </InsightsStoreContext.Provider>
+      ) : (
+        shell
+      )}
     </SessionStoreContext.Provider>
   )
 }
 
-function Header() {
+function Header({
+  view,
+  onSelectView,
+}: {
+  view?: View
+  onSelectView?: (v: View) => void
+}) {
   return (
     <header className="app-header">
       <span className="app-logo" aria-hidden="true">
@@ -73,20 +122,57 @@ function Header() {
       </span>
       <h1>Chess Coach</h1>
       <span className="app-tagline">opening trainer</span>
+      {view && onSelectView && (
+        <nav className="nav-tabs" aria-label="App sections">
+          <button
+            type="button"
+            className={`nav-tab${view === 'train' ? ' nav-tab-active' : ''}`}
+            onClick={() => onSelectView('train')}
+          >
+            Train
+          </button>
+          <button
+            type="button"
+            className={`nav-tab${view === 'insights' ? ' nav-tab-active' : ''}`}
+            onClick={() => onSelectView('insights')}
+          >
+            Insights
+          </button>
+        </nav>
+      )}
     </header>
   )
 }
 
-function Shell() {
+function Shell({
+  view,
+  onSelectView,
+  onTrain,
+  hasInsights,
+}: {
+  view: View
+  onSelectView: (v: View) => void
+  onTrain: (openingId: string) => void
+  hasInsights: boolean
+}) {
   const status = useSession((s) => s.status)
   const engineInitializing = useSession((s) => s.engineInitializing)
 
   return (
     <div className="app">
-      <Header />
+      <Header view={view} onSelectView={onSelectView} />
       <ErrorBanner />
       <main className="app-main">
-        {status === 'picking' ? (
+        {view === 'insights' ? (
+          hasInsights ? (
+            <InsightsScreen onTrain={onTrain} />
+          ) : (
+            <div className="fatal">
+              <h2>Insights is not available</h2>
+              <p>The insights module failed to initialise. Training still works.</p>
+            </div>
+          )
+        ) : status === 'picking' ? (
           <OpeningPicker />
         ) : engineInitializing ? (
           <div className="loading-screen">
