@@ -32,3 +32,5 @@ blocks on a missing ADR.
 
 - [0001 — Record architecture decisions](0001-record-architecture-decisions.md)
 - [0002 — Adopt AI-first guardrails](0002-ai-first-guardrails.md)
+- [0003 — Problems-mode BYOK reasoning coach](0003-problems-mode-byok-reasoning-coach.md)
+- [0004 — Installable, offline-capable PWA](0004-installable-pwa.md)
