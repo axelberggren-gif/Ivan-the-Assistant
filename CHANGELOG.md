@@ -5,6 +5,9 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- feat(problems): Problems mode — three-phase solving (read → reason → solve) on bundled
+  Lichess CC0 problems with a BYOK reasoning coach and CI data-refresh workflow
+  (Milestone 6a–6c, PLAN.md §8, ADR-0003); 6d (insights hookup) is a follow-up
 - docs(plan): Problems mode solution plan — three gated phases (read → reason → solve),
   bundled Lichess CC0 problems, BYOK reasoning coach (PLAN.md §8, ADR-0003)
 - chore(repo): adopt AI-first guardrails — AGENTS.md canon, per-directory CLAUDE.md files,

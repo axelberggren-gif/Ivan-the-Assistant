@@ -3,8 +3,10 @@
 - `session.ts` — the play → assess → respond training loop. Built **strictly against the
   contracts in `src/types.ts`**, with `SessionDeps` (book, engine, coach) injected at
   creation so the store is testable with fakes (`session.test.ts`).
-- `context.ts` / `insightsContext.ts` — React wiring (`useStore`); keep React out of the
-  store files themselves.
+- `problems.ts` — the read → reason → solve problems loop (Milestone 6). Same seam:
+  `ProblemsDeps` (engine, problems, llm) injected at creation, faked in `problems.test.ts`.
+- `context.ts` / `problemsContext.ts` / `insightsContext.ts` — React wiring (`useStore`);
+  keep React out of the store files themselves.
 - `insights.ts` — chess.com insights state, separate store from the training session.
 
 ## Invariants
@@ -19,7 +21,12 @@
   play continues engine-only to the middlegame cap (~move 25).
 - Session deps are injected, never imported concretely — tests rely on this seam.
 
+- Problems-mode transitions follow PLAN.md §8.1: read check gates reasoning, reasoning
+  gates solving; a wrong solve move → stop-and-explain → fix-gated retry; the reasoning
+  coach failing (or no key) degrades to the engine-line reveal, never blocks the phase.
+
 ## Recent changes
 
+- Problems session store: read → reason → solve loop with injected deps (Milestone 6).
 - Fix-gated retry + notice/hint-arrow handling.
 - Initial session store with injected deps.
