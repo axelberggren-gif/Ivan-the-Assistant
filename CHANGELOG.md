@@ -5,6 +5,8 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- docs(plan): Problems mode solution plan — three gated phases (read → reason → solve),
+  bundled Lichess CC0 problems, BYOK reasoning coach (PLAN.md §8, ADR-0003)
 - chore(repo): adopt AI-first guardrails — AGENTS.md canon, per-directory CLAUDE.md files,
   ADR log, CI + AI-review + PR-title workflows, PR template, onboarding guide (ADR-0002)
 - feat(insights): chess.com stats dashboard + train-what-you-lose recommendations (Milestone 5)

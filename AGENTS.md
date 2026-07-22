@@ -65,6 +65,10 @@ Respect them strictly — they are not optional style preferences.
 6. **No secrets, no accounts, no personal data.** The chess.com integration uses the public
    unauthenticated API only. Anything that would need an API key, login, or backend is an
    architecture change: write an ADR first and get the owner's OK before building it.
+   *Sole exception (ADR-0003)*: the problems-mode reasoning coach may call the Anthropic
+   API with a **user-supplied** key (BYOK) stored only in the browser and sent only to
+   `api.anthropic.com` — never bundled, committed, logged, or proxied. The app must stay
+   fully usable without a key.
 7. **CI must pass**: `npm run typecheck && npm test && npm run build` — locally green before
    opening a PR; the `ci` workflow runs the same three steps.
 8. **Git identity**: never run `git config user.name` / `user.email` — impersonating the

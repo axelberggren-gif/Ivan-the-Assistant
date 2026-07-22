@@ -44,3 +44,22 @@ The single correct move in the position where the user blundered — authored fo
 
 **Session**:
 One training run of one opening from the start position until a blunder stop, the middlegame move cap (~move 25), or restart.
+
+**Problem**:
+A bundled tactics position (curated from the Lichess CC0 puzzle database) solved in three gated phases: read → reason → solve. Always a 2–3 move line, never a one-mover.
+_Avoid_: puzzle (in prose; the upstream dataset keeps its own naming), exercise
+
+**Read check**:
+The machine-checked situational-awareness gate before reasoning: material count (verified against the FEN) and a verdict guess (compared against the engine's eval bucket).
+
+**Reasoning**:
+The user's free-text explanation of the winning idea and calculated line, written before any move is played.
+
+**Reasoning coach**:
+The BYOK AI layer that compares the user's reasoning against Stockfish's analysis and reports what was right, missed, or wrong. It never calculates chess — engine output is ground truth.
+
+**Setup move**:
+The opponent's move auto-played from a problem's start position; the user solves from the resulting position. (In the Lichess data it is the first move of `Moves`.)
+
+**BYOK**:
+Bring-your-own-key — the user's own Anthropic API key, stored only in the browser and sent only to the provider. Without a key the app still works with engine-only feedback (ADR-0003).
