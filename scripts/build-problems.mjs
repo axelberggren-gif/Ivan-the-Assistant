@@ -12,6 +12,12 @@
  * ~250 MB .zst dump is streamed (HTTPS → zstd decompress → readline) and
  * only the ~6k sampled problems are kept in memory.
  *
+ * Decompression prefers the system `zstd` binary (preinstalled on
+ * GitHub's ubuntu-latest runners; handles long-window and multi-frame
+ * archives), falling back to node:zlib's ZstdDecompress. Failures at any
+ * pipeline stage abort the run BEFORE anything is written — output files
+ * only appear after a fully successful scan.
+ *
  * Sampling is deterministic: a seeded PRNG (constant + source dump date)
  * drives reservoir sampling, so reruns on the same dump reproduce the
  * same output byte-for-byte.
@@ -193,11 +199,16 @@ function mulberry32(seed) {
 // Input: open the source as a line stream (never buffering the whole file)
 // ---------------------------------------------------------------------------
 
-/** HTTPS/local source → { stream, lastModified }. */
+/** HTTPS/local source → { stream, lastModified, compressed }. Logs diagnostics. */
 async function openSource(input) {
   if (/^https?:\/\//i.test(input)) {
     console.log(`Downloading ${input} (streaming — the raw CSV is never written to disk or committed)`)
     const res = await fetch(input)
+    console.log(
+      `HTTP ${res.status} ${res.statusText}; content-type: ${res.headers.get('content-type') ?? '(none)'}; ` +
+        `content-length: ${res.headers.get('content-length') ?? '(none)'}; ` +
+        `last-modified: ${res.headers.get('last-modified') ?? '(none)'}`,
+    )
     if (!res.ok || !res.body) {
       fail(`download failed: HTTP ${res.status} ${res.statusText} for ${input}`)
     }
@@ -216,35 +227,154 @@ async function openSource(input) {
 }
 
 /**
- * zstd decompression: prefer node:zlib's native stream (Node >= 22.15),
- * else pipe through a system `zstd -dc` / `unzstd`. Clear failure otherwise.
+ * Read (and push back) the first n bytes of a paused Readable without
+ * consuming them — the stream can then be piped as if untouched.
  */
-function zstdDecompress(source) {
-  if (typeof zlib.createZstdDecompress === 'function') {
-    const z = zlib.createZstdDecompress()
-    source.on('error', (err) => z.destroy(err))
-    return source.pipe(z)
+function peekBytes(stream, n) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    let size = 0
+    const cleanup = () => {
+      stream.removeListener('readable', onReadable)
+      stream.removeListener('end', onEnd)
+      stream.removeListener('error', onError)
+    }
+    const finish = () => {
+      cleanup()
+      const buf = Buffer.concat(chunks)
+      if (buf.length > 0) stream.unshift(buf)
+      resolve(buf.subarray(0, n))
+    }
+    const onReadable = () => {
+      let chunk
+      while (size < n && (chunk = stream.read()) !== null) {
+        chunks.push(chunk)
+        size += chunk.length
+      }
+      if (size >= n) finish()
+    }
+    const onEnd = () => finish()
+    const onError = (err) => {
+      cleanup()
+      reject(err)
+    }
+    stream.on('readable', onReadable)
+    stream.on('end', onEnd)
+    stream.on('error', onError)
+    onReadable()
+  })
+}
+
+const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]) // zstd frame magic, as it appears on the wire
+
+const toHex = (buf) => [...buf].map((b) => b.toString(16).padStart(2, '0')).join(' ')
+
+/**
+ * Sanity-check that a .zst source actually starts with zstd data — a
+ * proxy/CDN error page would otherwise surface as a cryptic frame error
+ * deep inside the decompressor. Aborts (without writing anything) with the
+ * offending bytes when the magic is wrong.
+ */
+async function assertZstdMagic(stream, label) {
+  const head = await peekBytes(stream, 4)
+  const hex = toHex(head)
+  if (head.length === 4 && head.equals(ZSTD_MAGIC)) {
+    console.log(`zstd magic verified (${hex})`)
+    return
   }
+  // Skippable frame: magic 0x184D2A50–0x184D2A5F, little-endian on the wire → 5x 2a 4d 18.
+  const skippable =
+    head.length === 4 && (head[0] & 0xf0) === 0x50 && head[1] === 0x2a && head[2] === 0x4d && head[3] === 0x18
+  if (skippable) {
+    console.log(
+      `Note: ${label} starts with a zstd SKIPPABLE frame (bytes ${hex}, magic family 0x184D2A5x). ` +
+        `That is valid zstd container data — the system 'zstd' binary skips it; node:zlib may not.`,
+    )
+    return
+  }
+  const preview = await peekBytes(stream, 200)
+  const text = preview.toString('utf8').replace(/[^\x20-\x7e\n\t]/g, '.')
+  fail(
+    `${label} does not start with the zstd magic (expected 28 b5 2f fd, got ${hex}) ` +
+      `and is not a zstd skippable frame (0x184D2A5x) either. This is probably an HTML/text ` +
+      `error page from a proxy or CDN, not the dump. First ${preview.length} bytes as text:\n---\n${text}\n---`,
+  )
+}
+
+/**
+ * zstd decompression stage. PREFERS the system `zstd` binary (preinstalled
+ * on ubuntu-latest; `--long=31` handles the long-window/multi-frame archives
+ * that node:zlib's ZstdDecompress rejects with ZSTD_error_prefix_unknown /
+ * frame errors on the Lichess dumps). Falls back to node:zlib with
+ * windowLogMax raised to the format maximum. Fails clearly if neither exists.
+ *
+ * Every failure mode (spawn error, non-zero exit, stderr output, stream
+ * errors) is routed through failStage so the run aborts before writing.
+ * Returns { stream, done } — `done` MUST be awaited after the scan so a
+ * decompressor that died mid-stream (ending the line stream early) cannot
+ * pass as a successful, shorter scan.
+ */
+function zstdDecompress(source, failStage) {
   for (const [bin, binArgs] of [
-    ['zstd', ['-dc', '-']],
-    ['unzstd', ['-c', '-']],
+    ['zstd', ['-dc', '--long=31', '-']],
+    ['unzstd', ['-c', '--long=31', '-']],
   ]) {
     const probe = spawnSync(bin, ['--version'], { stdio: 'ignore' })
-    if (!probe.error) {
-      console.log(`node:zlib has no zstd support here — decompressing via system '${bin}'`)
-      const child = spawn(bin, binArgs, { stdio: ['pipe', 'pipe', 'inherit'] })
-      child.on('exit', (code) => {
-        if (code !== 0) fail(`${bin} exited with code ${code}`)
+    if (probe.error) continue
+    console.log(`Decompressing via system '${bin}' (--long=31: handles long-window/multi-frame archives)`)
+    const child = spawn(bin, binArgs, { stdio: ['pipe', 'pipe', 'pipe'] })
+    let stderrText = ''
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (d) => {
+      stderrText += d
+    })
+    const done = new Promise((resolve, reject) => {
+      child.on('error', (err) => reject(new Error(`could not run '${bin}': ${err.message}`)))
+      child.on('close', (code) => {
+        const stderr = stderrText.trim()
+        if (code !== 0) {
+          reject(new Error(`'${bin}' exited with code ${code}${stderr ? `; stderr: ${stderr}` : ''}`))
+        } else if (stderr) {
+          reject(new Error(`'${bin}' exited 0 but wrote to stderr (treated as failure): ${stderr}`))
+        } else {
+          resolve()
+        }
       })
-      source.on('error', (err) => child.stdout.destroy(err))
-      source.pipe(child.stdin)
-      return child.stdout
-    }
+    })
+    done.catch(failStage(`system ${bin}`)) // fail fast mid-scan; also marks the rejection handled
+    child.stdin.on('error', failStage(`${bin} stdin`))
+    child.stdout.on('error', failStage(`${bin} stdout`))
+    source.on('error', () => child.stdin.destroy())
+    source.pipe(child.stdin)
+    return { stream: child.stdout, done: done.catch(() => {}) }
   }
+
+  if (typeof zlib.createZstdDecompress === 'function') {
+    console.log(
+      "No system 'zstd' on PATH — falling back to node:zlib ZstdDecompress. " +
+        "If this fails on a frame error, install zstd (apt install zstd / brew install zstd) and rerun.",
+    )
+    const opts = {}
+    if (zlib.constants && typeof zlib.constants.ZSTD_d_windowLogMax === 'number') {
+      // Raise the decompression window to the format maximum (2^31) so
+      // --long-compressed archives don't get rejected outright.
+      opts.params = { [zlib.constants.ZSTD_d_windowLogMax]: 31 }
+    }
+    let z
+    try {
+      z = zlib.createZstdDecompress(opts)
+    } catch {
+      z = zlib.createZstdDecompress() // params unsupported on this Node — best effort
+    }
+    z.on('error', failStage('zstd decompression (node:zlib)'))
+    source.on('error', (err) => z.destroy(err))
+    return { stream: source.pipe(z), done: Promise.resolve() }
+  }
+
   fail(
-    'no zstd decompressor available. Either run Node >= 22.15 ' +
-      "(node:zlib createZstdDecompress) or install the 'zstd' CLI " +
-      '(apt install zstd / brew install zstd), then rerun.',
+    "no zstd decompressor available. Install the 'zstd' CLI (apt install zstd / " +
+      'brew install zstd) — preferred — or run Node >= 22.15 (node:zlib ' +
+      'createZstdDecompress), then rerun.',
   )
 }
 
@@ -278,7 +408,7 @@ function replays(problem) {
 async function main() {
   const args = parseArgs(process.argv)
 
-  const { stream, lastModified, compressed } = await openSource(args.input)
+  const { stream: rawStream, lastModified, compressed } = await openSource(args.input)
 
   const sourceDate =
     args.sourceDate ??
@@ -289,10 +419,33 @@ async function main() {
   const rng = mulberry32(hashSeed(`${SEED_BASE}:${sourceDate}`))
   console.log(`Source date: ${sourceDate} (PRNG seeded from '${SEED_BASE}:${sourceDate}' — reruns on the same dump are reproducible)`)
 
-  const lines = createInterface({
-    input: compressed ? zstdDecompress(stream) : stream,
-    crlfDelay: Infinity,
+  // -- Fail-fast wiring: an 'error' on ANY pipeline stage (download body,
+  //    decompressor, child process, readline) rejects the scan, and output
+  //    is only ever written after the scan finished with no recorded error.
+  let pipelineError = null
+  let rejectPipeline
+  const pipelineFailed = new Promise((_, reject) => {
+    rejectPipeline = reject
   })
+  pipelineFailed.catch(() => {}) // handled via Promise.race; silence late rejections
+  const failStage = (stage) => (err) => {
+    const wrapped = new Error(`${stage} failed: ${err && err.message ? err.message : err}`)
+    if (!pipelineError) pipelineError = wrapped
+    rejectPipeline(wrapped)
+  }
+  rawStream.on('error', failStage(compressed ? 'download/read stream' : 'input stream'))
+
+  let dataStream = rawStream
+  let decompressorDone = Promise.resolve()
+  if (compressed) {
+    await assertZstdMagic(rawStream, args.input)
+    const dec = zstdDecompress(rawStream, failStage)
+    dataStream = dec.stream
+    decompressorDone = dec.done
+  }
+
+  const lines = createInterface({ input: dataStream, crlfDelay: Infinity })
+  lines.on('error', failStage('readline'))
 
   // One reservoir per (motif, rating band); every puzzle is assigned to
   // exactly one motif — the matching motif with the fewest picks so far.
@@ -307,62 +460,79 @@ async function main() {
   let rows = 0
   let candidates = 0
 
-  for await (const line of lines) {
-    if (!line || line.startsWith('PuzzleId,')) continue
-    rows++
-    if (rows % 1_000_000 === 0) console.log(`  … ${rows.toLocaleString('en-US')} rows scanned`)
+  const scan = async () => {
+    for await (const line of lines) {
+      if (!line || line.startsWith('PuzzleId,')) continue
+      rows++
+      if (rows % 1_000_000 === 0) console.log(`  … ${rows.toLocaleString('en-US')} rows scanned`)
 
-    const cols = line.split(',')
-    if (cols.length < 10) continue
+      const cols = line.split(',')
+      if (cols.length < 10) continue
 
-    const rating = Number(cols[COL.rating])
-    if (!(rating >= RATING_MIN && rating <= RATING_MAX)) continue
-    if (Number(cols[COL.popularity]) < POPULARITY_MIN) continue
-    if (Number(cols[COL.nbPlays]) < NB_PLAYS_MIN) continue
+      const rating = Number(cols[COL.rating])
+      if (!(rating >= RATING_MIN && rating <= RATING_MAX)) continue
+      if (Number(cols[COL.popularity]) < POPULARITY_MIN) continue
+      if (Number(cols[COL.nbPlays]) < NB_PLAYS_MIN) continue
 
-    const themes = cols[COL.themes].split(' ').filter(Boolean)
-    if (themes.includes('oneMove')) continue
-    const lengthTag = themes.find((t) => t in LENGTH_TAGS)
-    if (!lengthTag) continue
+      const themes = cols[COL.themes].split(' ').filter(Boolean)
+      if (themes.includes('oneMove')) continue
+      const lengthTag = themes.find((t) => t in LENGTH_TAGS)
+      if (!lengthTag) continue
 
-    const moves = cols[COL.moves].split(' ').filter(Boolean)
-    if (moves.length !== LENGTH_TAGS[lengthTag]) continue
+      const moves = cols[COL.moves].split(' ').filter(Boolean)
+      if (moves.length !== LENGTH_TAGS[lengthTag]) continue
 
-    const matching = MOTIFS.filter((m) => themes.includes(m.id))
-    if (matching.length === 0) continue
+      const matching = MOTIFS.filter((m) => themes.includes(m.id))
+      if (matching.length === 0) continue
 
-    candidates++
+      candidates++
 
-    // Assign to exactly one motif: the matching one with the fewest picks
-    // so far (ties broken by curated motif order — deterministic).
-    let motif = matching[0]
-    for (const m of matching) {
-      if (assignedPerMotif.get(m.id) < assignedPerMotif.get(motif.id)) motif = m
+      // Assign to exactly one motif: the matching one with the fewest picks
+      // so far (ties broken by curated motif order — deterministic).
+      let motif = matching[0]
+      for (const m of matching) {
+        if (assignedPerMotif.get(m.id) < assignedPerMotif.get(motif.id)) motif = m
+      }
+      assignedPerMotif.set(motif.id, assignedPerMotif.get(motif.id) + 1)
+
+      const bandIdx = RATING_BANDS.findIndex(([lo, hi]) => rating >= lo && rating <= hi)
+      const bucket = buckets.get(`${motif.id}:${bandIdx}`)
+
+      const problem = {
+        id: cols[COL.id],
+        fen: cols[COL.fen],
+        moves,
+        rating,
+        themes, // keep the full original tag list
+      }
+
+      // Reservoir sampling: uniform BUCKET_SIZE-subset of the bucket's stream.
+      bucket.seen++
+      if (bucket.items.length < BUCKET_SIZE) {
+        bucket.items.push(problem)
+      } else {
+        const j = Math.floor(rng() * bucket.seen)
+        if (j < BUCKET_SIZE) bucket.items[j] = problem
+      }
     }
-    assignedPerMotif.set(motif.id, assignedPerMotif.get(motif.id) + 1)
-
-    const bandIdx = RATING_BANDS.findIndex(([lo, hi]) => rating >= lo && rating <= hi)
-    const bucket = buckets.get(`${motif.id}:${bandIdx}`)
-
-    const problem = {
-      id: cols[COL.id],
-      fen: cols[COL.fen],
-      moves,
-      rating,
-      themes, // keep the full original tag list
-    }
-
-    // Reservoir sampling: uniform BUCKET_SIZE-subset of the bucket's stream.
-    bucket.seen++
-    if (bucket.items.length < BUCKET_SIZE) {
-      bucket.items.push(problem)
-    } else {
-      const j = Math.floor(rng() * bucket.seen)
-      if (j < BUCKET_SIZE) bucket.items[j] = problem
-    }
+    // The line stream ended — but a decompressor that died mid-stream also
+    // ends it early. Wait for the decompressor's verdict and let pending
+    // 'error' events land before declaring the scan complete.
+    await decompressorDone
+    await new Promise((resolve) => setImmediate(resolve))
+    if (pipelineError) throw pipelineError
   }
 
+  await Promise.race([scan(), pipelineFailed])
+
   console.log(`\nScanned ${rows.toLocaleString('en-US')} rows; ${candidates.toLocaleString('en-US')} passed the filters.`)
+
+  if (candidates === 0) {
+    fail(
+      '0 rows passed the filters — refusing to write output. With the real Lichess dump this ' +
+        'always means the download or decompression silently produced no usable data.',
+    )
+  }
 
   // Verification pass: every sampled puzzle must replay through chess.js.
   let droppedInvalid = 0
@@ -383,7 +553,13 @@ async function main() {
     perMotif.set(motif.id, kept)
   }
 
-  // Write output: compact per-theme files + pretty manifest.
+  const grandTotal = [...perMotif.values()].reduce((sum, list) => sum + list.length, 0)
+  if (grandTotal === 0) {
+    fail('every sampled puzzle failed chess.js verification — refusing to write output.')
+  }
+
+  // Write output — only reached after a fully successful scan: compact
+  // per-theme files + pretty manifest.
   mkdirSync(args.out, { recursive: true })
   const themeInfos = MOTIFS.map((motif) => {
     const problems = perMotif.get(motif.id)
@@ -398,7 +574,6 @@ async function main() {
     }
   })
 
-  const total = themeInfos.reduce((sum, t) => sum + t.count, 0)
   const manifest = {
     source: 'lichess_db_puzzle',
     sourceDate,
@@ -406,7 +581,7 @@ async function main() {
     license: 'CC0-1.0',
     ratingMin: RATING_MIN,
     ratingMax: RATING_MAX,
-    total,
+    total: grandTotal,
     themes: themeInfos,
   }
   writeFileSync(join(args.out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
@@ -418,8 +593,9 @@ async function main() {
     ).join('/')
     console.log(`  ${t.file.padEnd(22)} ${String(t.count).padStart(5)} problems (bands ${bands})`)
   }
-  console.log(`  total ${total} problems; ${droppedInvalid} sampled row(s) dropped by chess.js verification`)
+  console.log(`  total ${grandTotal} problems; ${droppedInvalid} sampled row(s) dropped by chess.js verification`)
   console.log('\nReminder (PLAN.md §8.2): commit only public/problems/*.json — the raw CSV is never committed.')
+  process.exit(0) // don't let a lingering stream/child keep the event loop alive
 }
 
 main().catch((err) => fail(err && err.stack ? err.stack : String(err)))
