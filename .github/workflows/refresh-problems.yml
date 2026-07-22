@@ -55,4 +55,15 @@ jobs:
           # Repo rule (AGENTS.md invariant 8): never run `git config user.name`/
           # `user.email` — identity is passed inline per command instead.
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "chore(data): build bundled problems from lichess dump" -m "Co-authored-by: Claude <noreply@anthropic.com>"
-          git push origin "HEAD:${{ github.ref_name }}"
+          # The branch may have moved while the dump was scanning (other work
+          # streams push to it) — rebase our data-only commit and retry. The
+          # commit touches only public/problems/**, so the rebase is clean.
+          for attempt in 1 2 3; do
+            git pull --rebase origin "${{ github.ref_name }}" || exit 1
+            if git push origin "HEAD:${{ github.ref_name }}"; then
+              exit 0
+            fi
+            echo "Push rejected (attempt $attempt) — branch moved again; retrying."
+            sleep 5
+          done
+          exit 1
