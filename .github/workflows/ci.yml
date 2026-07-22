@@ -1,0 +1,38 @@
+name: ci
+
+# Runs the same verify loop as the local pre-PR check:
+# npm run typecheck && npm test && npm run build. Required to pass before any merge to main.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Least privilege: CI only needs to read the repository.
+permissions:
+  contents: read
+
+jobs:
+  # Job name = the required status-check context. Branch protection requires
+  # this exact name (`build`), so don't rename it casually.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check (tsc)
+        run: npm run typecheck
+
+      - name: Tests (vitest)
+        run: npm test
+
+      - name: Production build (vite)
+        run: npm run build
