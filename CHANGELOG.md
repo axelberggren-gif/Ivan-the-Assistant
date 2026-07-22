@@ -5,6 +5,11 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- feat(pwa): make Ivan an installable, offline-capable PWA — web manifest + Workbox
+  service worker via vite-plugin-pwa (autoUpdate), knight-on-meadow icons (192/512/
+  maskable/apple-touch/favicon), light-precache app shell with runtime caching for the
+  Stockfish WASM, problem JSON, and fonts; base-URL aware for the GitHub Pages deploy.
+  The BYOK Anthropic API is intentionally never cached (ADR-0004, ADR-0003, invariant 6)
 - feat(ui): Ivan · Meadow redesign — sage-green light theme (Nunito/Manrope, pill nav,
   gradient hero cards, rounded white panels, green board), rebrand to "Ivan", a new
   "Today" home screen with a real localStorage streak + daily-goal, problems phase

@@ -15,6 +15,8 @@ Respect them strictly — they are not optional style preferences.
 
 - **Stack**: Vite + React 18 + TypeScript 5 · zustand · chess.js · react-chessboard ·
   Stockfish 18 WASM (Web Worker, UCI). **Browser-only SPA — no backend, no secrets.**
+  Ships as an installable, offline-capable **PWA** (vite-plugin-pwa + Workbox service
+  worker; ADR-0004) — the service worker must never cache `api.anthropic.com` (invariant 6).
 - **Purpose**: an interactive chess coach that teaches openings by playing them against you,
   commenting on every move, and stopping the game when you've thrown it. Personal training
   tool first, product later.
