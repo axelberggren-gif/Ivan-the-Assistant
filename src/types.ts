@@ -241,3 +241,146 @@ export interface SessionDeps {
   book: OpeningBook
   coach: CoachAPI
 }
+
+// ---------------------------------------------------------------------------
+// Problems mode (src/problems, src/llm, src/store/problems.ts) — Milestone 6
+// ---------------------------------------------------------------------------
+
+/**
+ * One bundled tactics problem, curated from the Lichess puzzle database (CC0)
+ * by scripts/build-problems.mjs and served from public/problems/.
+ */
+export interface Problem {
+  /** Lichess puzzle id */
+  id: string
+  /** Position BEFORE the setup move (Lichess convention) */
+  fen: string
+  /**
+   * UCI moves: `moves[0]` is the opponent's setup move (auto-played on load);
+   * the user's solution starts at `moves[1]` and alternates user/opponent.
+   */
+  moves: string[]
+  /** Lichess difficulty rating */
+  rating: number
+  /** Lichess motif tags, e.g. "fork", "pin" */
+  themes: string[]
+}
+
+export interface ProblemThemeInfo {
+  /** Motif id used in filenames and lookups, e.g. "fork" */
+  id: string
+  /** Display name, e.g. "Fork" */
+  name: string
+  /** One-line description for the picker */
+  description: string
+  /** File name under /problems/, e.g. "fork.json" */
+  file: string
+  /** Number of problems in the file */
+  count: number
+}
+
+export interface ProblemManifest {
+  /** Provenance: source dataset name (ADR-0003) */
+  source: string
+  /** Date of the upstream dump the set was built from (YYYY-MM-DD) */
+  sourceDate: string
+  generatedAt: string
+  license: string
+  ratingMin: number
+  ratingMax: number
+  total: number
+  themes: ProblemThemeInfo[]
+}
+
+/** Read-only source of bundled problems (fetch + validate, src/problems). */
+export interface ProblemSource {
+  manifest(): Promise<ProblemManifest>
+  /** All problems for one theme; validated before being returned. */
+  theme(themeId: string): Promise<Problem[]>
+}
+
+/** 5-bucket verdict for the read check, named from White's side. */
+export type VerdictBucket =
+  | 'white_winning'
+  | 'white_better'
+  | 'equal'
+  | 'black_better'
+  | 'black_winning'
+
+/** The user's answers to the read check (CONTEXT.md: "Read check"). */
+export interface ReadCheckAnswer {
+  /** Material diff in pawns the user believes, White minus Black (Q9 R5 B3 N3 P1) */
+  materialDiff: number
+  verdict: VerdictBucket
+}
+
+/** Machine-checked result of the read check. */
+export interface ReadCheckReport {
+  materialCorrect: boolean
+  /** Actual material diff (White minus Black), computed from the FEN */
+  actualMaterialDiff: number
+  verdictCorrect: boolean
+  /** Bucket derived from the engine's eval */
+  actualVerdict: VerdictBucket
+  /** White-perspective cp the verdict was derived from (mate mapped via MATE_CP) */
+  evalCp: number
+  /** Coaching hook, e.g. "You said equal — Stockfish says you're winning. Prove it." */
+  comment: string
+}
+
+/** One engine line summarised for prose feedback (reasoning coach input). */
+export interface EngineLineSummary {
+  san: string[]
+  /** Human-readable eval from the user's perspective, e.g. "+2.3" or "mate in 2" */
+  evalText: string
+}
+
+export interface ReasoningGradeInput {
+  /** Position the user reasons about (AFTER the setup move; user to move) */
+  fen: string
+  userColor: Color
+  /** The user's free-text reasoning */
+  reasoning: string
+  /** Authored solution in SAN (user + opponent moves, user first) */
+  solutionSan: string[]
+  /** Engine ground truth: top lines from the solve position */
+  engineLines: EngineLineSummary[]
+}
+
+/** Structured feedback from the reasoning coach (validated before rendering). */
+export interface ReasoningFeedback {
+  goodPoints: string[]
+  missed: string[]
+  wrong: string[]
+  comment: string
+}
+
+/**
+ * BYOK reasoning coach (ADR-0003). All LLM traffic goes through src/llm —
+ * mirror of the src/engine rule. Key lives only in localStorage; no key ⇒
+ * hasKey() is false and the app degrades to engine-only feedback.
+ */
+export interface LlmAPI {
+  hasKey(): boolean
+  setKey(key: string | null): void
+  /** Language-only comparison of the user's prose vs engine lines. */
+  gradeReasoning(input: ReasoningGradeInput): Promise<ReasoningFeedback>
+}
+
+export type ProblemSessionStatus =
+  | 'picking'
+  | 'loading'
+  | 'read'
+  | 'reason'
+  | 'grading'
+  | 'solve'
+  | 'opponent_replying'
+  | 'showing_refutation'
+  | 'stopped'
+  | 'solved'
+
+export interface ProblemsDeps {
+  engine: EngineAPI
+  problems: ProblemSource
+  llm: LlmAPI
+}
