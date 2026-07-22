@@ -40,6 +40,8 @@ Respect them strictly — they are not optional style preferences.
 @src/coach/CLAUDE.md
 @src/store/CLAUDE.md
 @src/insights/CLAUDE.md
+@src/problems/CLAUDE.md
+@src/llm/CLAUDE.md
 
 ## Global invariants (do NOT break — the `claude-review` bot blocks PRs that violate these)
 

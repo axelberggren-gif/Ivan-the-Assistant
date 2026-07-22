@@ -1,0 +1,24 @@
+/**
+ * Public surface of src/problems (Milestone 6 logic layer). The problems
+ * store (src/store/problems.ts) and UI build against these exports.
+ */
+export { createProblemSource } from './loader'
+export {
+  materialDiff,
+  verdictFromCp,
+  analysisCpWhite,
+  checkRead,
+  VERDICT_BETTER_MIN,
+  VERDICT_WINNING_MIN,
+} from './read'
+export { uciToSan, sanLineFromUci, isSolutionMove, engineLineSummaries } from './solve'
+export {
+  readCheckComment,
+  wrongMoveExplanation,
+  fixReminder,
+  solvedMessage,
+  setupMoveNotice,
+  selfCheckNotice,
+  oneLineAttemptNotice,
+} from './templates'
+export type { ReadCheckCommentOpts, WrongMoveOpts, SolvedOpts } from './templates'

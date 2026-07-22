@@ -1,0 +1,53 @@
+{
+  "source": "lichess_db_puzzle",
+  "sourceDate": "2026-07-01",
+  "generatedAt": "2026-07-22T12:21:40.368Z",
+  "license": "CC0-1.0",
+  "ratingMin": 1200,
+  "ratingMax": 1900,
+  "total": 5994,
+  "themes": [
+    {
+      "id": "fork",
+      "name": "Fork",
+      "description": "One piece attacks two targets at once — something has to give.",
+      "file": "fork.json",
+      "count": 999
+    },
+    {
+      "id": "pin",
+      "name": "Pin",
+      "description": "A piece can't move without exposing something more valuable behind it.",
+      "file": "pin.json",
+      "count": 999
+    },
+    {
+      "id": "skewer",
+      "name": "Skewer",
+      "description": "Attack the big piece first — when it steps aside, win what was hiding behind it.",
+      "file": "skewer.json",
+      "count": 999
+    },
+    {
+      "id": "discoveredAttack",
+      "name": "Discovered Attack",
+      "description": "Move one piece and unmask another's attack — two threats from a single move.",
+      "file": "discoveredAttack.json",
+      "count": 999
+    },
+    {
+      "id": "backRankMate",
+      "name": "Back-Rank Mate",
+      "description": "The king is boxed in behind its own pawns — crash through on the last rank.",
+      "file": "backRankMate.json",
+      "count": 999
+    },
+    {
+      "id": "hangingPiece",
+      "name": "Hanging Piece",
+      "description": "An undefended piece is up for grabs — spot it before your opponent saves it.",
+      "file": "hangingPiece.json",
+      "count": 999
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { SessionDeps } from './types'
+import type { LlmAPI, SessionDeps } from './types'
 import { createEngine } from './engine'
 import { createBook } from './book'
 import { createCoach } from './coach'
@@ -9,11 +9,16 @@ import { SessionStoreContext, useSession } from './store/context'
 import { createChesscomClient } from './insights/chesscom'
 import { createInsightsStore, type InsightsStore } from './store/insights'
 import { InsightsStoreContext } from './store/insightsContext'
+import { createProblemSource } from './problems'
+import { createLlm } from './llm'
+import { createProblemsStore, type ProblemsStore } from './store/problems'
+import { ProblemsStoreContext } from './store/problemsContext'
 import OpeningPicker from './components/OpeningPicker'
 import TrainerScreen from './components/TrainerScreen'
 import InsightsScreen from './components/InsightsScreen'
+import ProblemsScreen from './components/ProblemsScreen'
 
-type View = 'train' | 'insights'
+type View = 'train' | 'problems' | 'insights'
 
 interface DepsResult {
   deps: SessionDeps | null
@@ -47,11 +52,37 @@ function buildInsightsStore(): InsightsStore | null {
   }
 }
 
+interface ProblemsParts {
+  store: ProblemsStore
+  llm: LlmAPI
+}
+
+/**
+ * Problems mode is optional like insights: if its deps fail to build, the
+ * trainer still works. Reuses the SAME engine instance as the session deps —
+ * the engine serializes searches, and a second worker would waste memory.
+ */
+function buildProblems(deps: SessionDeps | null): ProblemsParts | null {
+  if (!deps) return null
+  try {
+    const llm = createLlm()
+    const store = createProblemsStore({
+      engine: deps.engine,
+      problems: createProblemSource(),
+      llm,
+    })
+    return { store, llm }
+  } catch {
+    return null
+  }
+}
+
 export default function App() {
   // Instantiate deps and the stores exactly once for the app's lifetime.
   const [{ deps, error }] = useState(buildDeps)
   const [insightsStore] = useState(buildInsightsStore)
   const store = useMemo(() => (deps ? createSessionStore(deps) : null), [deps])
+  const problems = useMemo(() => buildProblems(deps), [deps])
 
   const [view, setView] = useState<View>('train')
 
@@ -61,6 +92,9 @@ export default function App() {
   }
   if (import.meta.env.DEV && insightsStore) {
     ;(window as unknown as { __insights?: unknown }).__insights = insightsStore
+  }
+  if (import.meta.env.DEV && problems) {
+    ;(window as unknown as { __problems?: unknown }).__problems = problems.store
   }
 
   if (!deps || !store) {
@@ -92,20 +126,28 @@ export default function App() {
   }
 
   const shell = (
-    <Shell view={view} onSelectView={setView} onTrain={handleTrain} hasInsights={insightsStore !== null} />
+    <Shell
+      view={view}
+      onSelectView={setView}
+      onTrain={handleTrain}
+      hasInsights={insightsStore !== null}
+      problems={problems}
+    />
   )
 
-  return (
-    <SessionStoreContext.Provider value={store}>
-      {insightsStore ? (
-        <InsightsStoreContext.Provider value={insightsStore}>
-          {shell}
-        </InsightsStoreContext.Provider>
-      ) : (
-        shell
-      )}
-    </SessionStoreContext.Provider>
-  )
+  let tree = shell
+  if (insightsStore) {
+    tree = (
+      <InsightsStoreContext.Provider value={insightsStore}>{tree}</InsightsStoreContext.Provider>
+    )
+  }
+  if (problems) {
+    tree = (
+      <ProblemsStoreContext.Provider value={problems.store}>{tree}</ProblemsStoreContext.Provider>
+    )
+  }
+
+  return <SessionStoreContext.Provider value={store}>{tree}</SessionStoreContext.Provider>
 }
 
 function Header({
@@ -133,6 +175,13 @@ function Header({
           </button>
           <button
             type="button"
+            className={`nav-tab${view === 'problems' ? ' nav-tab-active' : ''}`}
+            onClick={() => onSelectView('problems')}
+          >
+            Problems
+          </button>
+          <button
+            type="button"
             className={`nav-tab${view === 'insights' ? ' nav-tab-active' : ''}`}
             onClick={() => onSelectView('insights')}
           >
@@ -149,11 +198,13 @@ function Shell({
   onSelectView,
   onTrain,
   hasInsights,
+  problems,
 }: {
   view: View
   onSelectView: (v: View) => void
   onTrain: (openingId: string) => void
   hasInsights: boolean
+  problems: ProblemsParts | null
 }) {
   const status = useSession((s) => s.status)
   const engineInitializing = useSession((s) => s.engineInitializing)
@@ -163,7 +214,16 @@ function Shell({
       <Header view={view} onSelectView={onSelectView} />
       <ErrorBanner />
       <main className="app-main">
-        {view === 'insights' ? (
+        {view === 'problems' ? (
+          problems ? (
+            <ProblemsScreen llm={problems.llm} />
+          ) : (
+            <div className="fatal">
+              <h2>Problems is not available</h2>
+              <p>The problems module failed to initialise. Training still works.</p>
+            </div>
+          )
+        ) : view === 'insights' ? (
           hasInsights ? (
             <InsightsScreen onTrain={onTrain} />
           ) : (
