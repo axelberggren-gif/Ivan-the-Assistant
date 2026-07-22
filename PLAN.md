@@ -230,8 +230,8 @@ This is where insights stop being a dashboard and become coaching:
 ## 6. Roadmap Beyond v1
 
 - **Phase 2 — chess.com insights (Milestone 5, §5):** fetch your game history, stats dashboard, engine-based weakness analysis, and "train what you lose" recommendations feeding the opening trainer.
-- **Phase 3 — Tactics & classical problems:** puzzle mode using the Lichess puzzle database (motif-tagged: forks, pins, back-rank…), graded by rating; "spot the trap" drills generated from the same trick-line data — prioritized by *your* recurring mistakes from the insights analysis.
-- **Phase 4 — Adaptive coach:** progress tracking (which lines you know, spaced repetition on your mistakes), LLM-polished explanations on top of the structured reason codes, more openings (user-requested), optional accounts/sync backend.
+- **Phase 3 — Problems mode (Milestone 6, §8):** three-phase problem solving (read → reason → solve) on a curated, bundled subset of the Lichess puzzle database, with a BYOK AI reasoning coach grading the user's written calculation against Stockfish (ADR-0003) — prioritized by *your* recurring mistakes from the insights analysis.
+- **Phase 4 — Adaptive coach:** progress tracking (which lines you know, spaced repetition on your mistakes), LLM-polished explanations extended from the §8 reasoning coach to the opening trainer, more openings (user-requested), optional accounts/sync backend.
 - **Phase 5 — Full-game coaching:** play complete games with post-game annotated review (blunder timeline, recurring-weakness detection: "you consistently drift in closed positions").
 
 ---
@@ -244,3 +244,102 @@ This is where insights stop being a dashboard and become coaching:
 | Authoring trap lines is manual work | Start with 3 openings; the data format makes each new opening an isolated content task |
 | WASM Stockfish performance on weak devices | Cap depth with a time budget (e.g., 800ms/move); coaching needs consistency, not depth 30 |
 | Feedback feels naggy or robotic | Only interrupt on mistake+; batch minor notes into the end summary; vary templates |
+
+---
+
+## 8. Problems Mode — three-phase tactics training (Milestone 6)
+
+Classic puzzle trainers reward tap-until-right guessing. This mode forces the habits that
+transfer to real games: **read the position, write down your calculation, then prove it.**
+One-move problems are excluded by design — every problem is a 2–3 move line where the user
+must see the opponent's replies in advance. Difficulty is moderate ("solid positions", some
+harsh): most problems sit in the ~1200–1900 rating band.
+
+### 8.1 The three phases (gated — each unlocks the next)
+
+**Phase 1 — Read (situational awareness, machine-checked).**
+Before anything else, two quick checks answered via simple controls:
+1. **Material count** — who is up material and by how much (verified against the FEN).
+2. **Verdict guess** — a 5-bucket call (White winning / better / equal / Black better /
+   Black winning), compared against Stockfish's eval. The reveal is itself the hook:
+   *"You said equal — Stockfish says you're winning. Your job: prove it."*
+
+**Phase 2 — Reason (free text, the heart of the exercise).**
+The user writes their idea and calculation in plain language before touching a piece:
+*"I could take on e4 but then the knight hangs, so I take on d4 first."* The **reasoning
+coach** (BYOK LLM, §8.3) compares this prose against Stockfish's lines — never calculating
+itself — and reports: what you got right, what you missed (*"after Bxe4, Re8 pins the
+rook"*), what's wrong. Without an API key, the phase still runs: the user self-checks
+against the revealed engine line (graceful degradation).
+
+**Phase 3 — Solve (execute the committed line).**
+The user plays their moves out; the opponent's forced replies animate. Anti-guessing rules:
+- An attempt is one continuous line — no exploratory piece-tapping.
+- A wrong move ends the attempt and triggers the existing **stop-and-explain** flow, with
+  the refutation animated and the coach's comment referencing the user's *written*
+  reasoning ("you said the knight was safe — here's why it isn't").
+- Retry follows the existing **fix-move** semantics: the correct move is required to
+  continue.
+- Move matching follows Lichess semantics: the authored solution move is required (any
+  immediate checkmate also counts as correct).
+
+### 8.2 Data: curated Lichess problems, bundled as static JSON (ADR-0003)
+
+- **Source**: Lichess puzzle database (CC0, ~6M rows, CSV) — motif-tagged, rating-graded.
+- **Pipeline**: `scripts/build-problems.mjs` (dev-only Node) downloads the `.csv.zst`,
+  filters (2–3 movers via `short`/`long` tags, rating ~1200–1900, popularity + NbPlays
+  thresholds, clean motifs like fork/pin/skewer/discoveredAttack/backRankMate/hangingPiece),
+  samples a balanced ~6k set across theme × rating band, and writes per-theme JSON plus a
+  `manifest.json` to `public/problems/`. Output is committed; the raw CSV never is.
+- **Delivery**: fetched on demand per theme (like `public/engine/`), keeping the JS bundle
+  small. Each theme file is ~50–150 KB gzipped.
+- **Format gotcha**: the Lichess FEN is the position *before* the opponent's setup move;
+  `Moves[0]` is that setup move (auto-played on load), and the user's solution starts at
+  `Moves[1]`. Getting this backwards is the classic integration bug.
+- **Proof**: like opening data, bundled problems ship with a test replaying every solution
+  through chess.js (FEN valid, every move legal in sequence).
+
+### 8.3 The reasoning coach (BYOK — ADR-0003)
+
+- **Division of labor**: Stockfish is ground truth (eval, best lines, refutations — all
+  already computed by `src/engine/`). The LLM does a *language-only* job: compare the
+  user's prose to the engine's lines and articulate the gap. It never adjudicates chess.
+- **BYOK**: the user pastes their own Anthropic API key in settings; it lives only in
+  `localStorage` and is sent only to `api.anthropic.com` (browser-direct). Default model:
+  Claude Haiku 4.5. No key → engine-only feedback, everything else works.
+- **Contract**: prompts carry FEN + engine lines (SAN) + user prose; the response is
+  structured JSON (`goodPoints`, `missed`, `wrong`, `comment`) validated before rendering;
+  invalid/failed responses degrade to the engine-line reveal.
+
+### 8.4 Module layout
+
+| Piece | Where | Rule |
+|---|---|---|
+| Build pipeline | `scripts/build-problems.mjs` | Dev-only; never runs in the browser |
+| Problem data | `public/problems/*.json` + manifest | Read-only at runtime, committed, CC0 |
+| Loader + phase logic | `src/problems/` | Pure where possible; fetch + validate |
+| LLM access | `src/llm/` | **All** LLM traffic goes through here (mirror of the `src/engine/` rule); prompt builders are pure and Node-testable |
+| Session state | `src/store/problems.ts` | Separate zustand store, deps injected (`engine`, `coach`, `llm`, problem source) — same testable seam as `session.ts` |
+| Types | `src/types.ts` | Additive only: `Problem`, read-check/feedback/API shapes |
+
+### 8.5 Build plan
+
+- **6a — Data**: pipeline script, bundled problem set, `Problem` types, chess.js replay
+  test. (Content lands before UI.)
+- **6b — Solve loop, engine-only**: problem picker (by motif/difficulty), read-check gate,
+  solve phase with stop-and-explain + fix-move retry. No LLM yet — reasoning phase shows
+  the engine line for self-checking.
+- **6c — Reasoning coach**: settings screen for the key, `src/llm/` client + prompt
+  builders + JSON validation, graded feedback UI.
+- **6d — Close the loop**: insights integration — recommend problems by the motifs and
+  openings you actually lose to (reuses §5.3 plumbing).
+
+### 8.6 Risks
+
+| Risk | Mitigation |
+|---|---|
+| LLM hallucinates chess ("actually Qh5 wins") | It never gets to calculate: engine lines in, language out; structured JSON; engine facts rendered separately from prose |
+| Key handling erodes trust | Key only in localStorage, only to api.anthropic.com, removable in settings; documented in ADR-0003 |
+| Free-text grading feels wrong/nitpicky | Grade ideas, not grammar: rubric in the prompt (credit the plan, flag only concrete missed/wrong tactics); user can always see raw engine lines |
+| Bundled set goes stale vs Lichess upstream | CC0 + committed script = refresh is one command; manifest carries the source dump date |
+

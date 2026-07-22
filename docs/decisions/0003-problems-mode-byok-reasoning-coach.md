@@ -1,0 +1,61 @@
+# 0003 — Problems mode: bundled Lichess problems + BYOK reasoning coach
+
+- **Status:** Accepted — BYOK chosen by the owner (Axel) in the 2026-07-22 design session,
+  from four presented options (BYOK / hosted proxy / local model / no AI). The owner's
+  merge of this PR is the final sign-off (per ADR-0002, a human is always the last gate).
+- **Date:** 2026-07-22
+
+## Context
+
+The roadmap's next feature (PLAN.md §6, Phase 3) is chess problems. The owner wants problem
+solving that *teaches*, not tap-pieces-until-green: the user must demonstrate situational
+awareness and write out their reasoning **before** moving, and get feedback on what their
+reasoning missed. That design (PLAN.md §8) raises two architecture questions:
+
+1. **Where does problem data come from, and how does it ship** in a browser-only SPA with
+   no backend? The Lichess puzzle database is the de-facto open standard: ~6M positions,
+   CC0 (public domain), motif-tagged, difficulty-rated, actively maintained — but far too
+   large to bundle whole (~250 MB).
+2. **Grading free-text reasoning requires a language model.** Comparing "I take on d4 first
+   because otherwise the knight hangs" against Stockfish's lines is a natural-language job
+   no template engine can do. But invariant 6 (AGENTS.md) forbids API keys and backends.
+
+## Decision
+
+- **Data: curate offline, commit the output.** A dev-only Node script
+  (`scripts/build-problems.mjs`) downloads the Lichess CSV, filters it (2–3 movers, rating
+  ~1200–1900, popularity/NbPlays thresholds, clean motifs), samples a balanced set across
+  theme × rating band (~6k problems), and writes per-theme JSON + a manifest to
+  `public/problems/`. Only the JSON output and the script are committed — never the raw
+  CSV. CC0 licensing makes redistribution unconditional; the script keeps it reproducible.
+- **Delivery: static fetch, not bundle.** Problem JSON is served like the engine WASM
+  (`public/engine/` precedent) and fetched on demand per theme — the main JS bundle does
+  not grow, and the trainer's startup is unaffected.
+- **Reasoning coach: bring-your-own-key (BYOK).** The user pastes their own Anthropic API
+  key in a settings screen. The key lives **only** in the browser (`localStorage`), is sent
+  **only** to `api.anthropic.com` (browser-direct CORS calls), and is never bundled,
+  committed, logged, or proxied. Default model: Claude Haiku 4.5 (fast/cheap; the hard
+  thinking is Stockfish's). Cost is well under a cent per graded problem.
+- **The LLM never adjudicates chess.** Stockfish output is ground truth; the model receives
+  engine lines as fact plus the user's prose, and does a language-only comparison (what was
+  missed, what was wrong, what was good), returning structured JSON that the UI renders.
+  Malformed or failed responses degrade to engine-only feedback.
+- **Module boundaries** (mirroring the `src/engine/` rule): all LLM access goes through a
+  new `src/llm/` module; problem data loading and phase logic live in `src/problems/`;
+  session state in a separate zustand store with injected deps. New types are **added** to
+  `src/types.ts` — no existing signature changes.
+- **Invariant 6 amended in this PR:** a BYOK exception is carved out. Everything else
+  stands — no backend, no accounts, no bundled secrets, and the app must remain fully
+  usable (with degraded, engine-only feedback) without a key.
+
+## Consequences
+
+- The app stays a free static site. Problems mode works for everyone; the reasoning coach
+  lights up only for users who bring a key — acceptable while this is a personal tool.
+- The repo stays secret-free: the key is the user's data, not the project's. Prompts carry
+  only the FEN, engine lines, and the user's typed reasoning — no personal data.
+- A derived dataset (~2–4 MB JSON) enters the repo; provenance and refresh are one script
+  run away. Bundled problems must prove themselves in tests like opening data does
+  (replay every solution through chess.js).
+- New seams to document when code lands: `src/problems/CLAUDE.md`, `src/llm/CLAUDE.md`,
+  and their entries in the AGENTS.md per-directory map.
