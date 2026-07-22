@@ -68,7 +68,9 @@ function buildProblems(deps: SessionDeps | null): ProblemsParts | null {
     const llm = createLlm()
     const store = createProblemsStore({
       engine: deps.engine,
-      problems: createProblemSource(),
+      // BASE_URL-aware so bundled problems resolve under a non-root deploy
+      // base (GitHub Pages serves the app from /<repo>/).
+      problems: createProblemSource(`${import.meta.env.BASE_URL}problems`),
       llm,
     })
     return { store, llm }

@@ -14,7 +14,9 @@ import {
   type ParsedInfo,
 } from './uci'
 
-const WORKER_URL = '/engine/stockfish-18-lite-single.js'
+// BASE_URL ends with '/' — resolves to /engine/... in dev and
+// /<repo>/engine/... when built with a non-root --base (GitHub Pages).
+const WORKER_URL = `${import.meta.env.BASE_URL}engine/stockfish-18-lite-single.js`
 
 const DEFAULT_DEPTH = 14
 const DEFAULT_MULTIPV = 3

@@ -5,6 +5,8 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- ci(deploy): publish the app to GitHub Pages on every push to main; runtime asset
+  paths (engine worker, bundled problems) now respect Vite's base URL (Milestone 4 deploy)
 - feat(problems): Problems mode — three-phase solving (read → reason → solve) on bundled
   Lichess CC0 problems with a BYOK reasoning coach and CI data-refresh workflow
   (Milestone 6a–6c, PLAN.md §8, ADR-0003); 6d (insights hookup) is a follow-up
