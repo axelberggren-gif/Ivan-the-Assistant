@@ -1,0 +1,58 @@
+name: refresh-problems
+
+# Runs the Milestone 6a data pipeline (scripts/build-problems.mjs, ADR-0003)
+# on a GitHub runner — which, unlike some agent sandboxes, can reach
+# database.lichess.org — and commits the generated public/problems/** back
+# to the branch it ran on. The raw Lichess CSV is streamed, never persisted,
+# never committed (PLAN.md §8.2).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'claude/phase-3-problems-mode-**'
+    paths:
+      - 'scripts/build-problems.mjs'
+
+# Needs to push the generated JSON back to the branch.
+permissions:
+  contents: write
+
+# One run per ref at a time — a second push waits instead of racing the
+# commit step.
+concurrency:
+  group: refresh-problems-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-problems:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build bundled problem set from the Lichess dump
+        run: node scripts/build-problems.mjs
+
+      - name: Prove the output (chess.js replay test)
+        run: npx vitest run src/problems/data.test.ts
+
+      - name: Commit & push public/problems/**
+        run: |
+          git add public/problems
+          if git diff --cached --quiet; then
+            echo "public/problems is unchanged — nothing to commit."
+            exit 0
+          fi
+          # Repo rule (AGENTS.md invariant 8): never run `git config user.name`/
+          # `user.email` — identity is passed inline per command instead.
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "chore(data): build bundled problems from lichess dump" -m "Co-authored-by: Claude <noreply@anthropic.com>"
+          git push origin "HEAD:${{ github.ref_name }}"
