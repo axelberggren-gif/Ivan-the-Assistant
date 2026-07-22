@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { LlmAPI } from '../types'
+import type { LlmAPI, ProblemSessionStatus } from '../types'
 import { useProblems } from '../store/problemsContext'
 import ProblemBoard, { ProblemEvalBar } from './ProblemBoard'
 import ReadCheckPanel from './ReadCheckPanel'
@@ -144,6 +144,37 @@ function StartScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
   )
 }
 
+const PHASES = ['Read', 'Reason', 'Solve'] as const
+
+/** Which of the three gated phases the current status belongs to (PLAN §8.1). */
+function phaseIndex(status: ProblemSessionStatus): number {
+  if (status === 'read') return 0
+  if (status === 'reason' || status === 'grading') return 1
+  return 2
+}
+
+/** Read → Reason → Solve step pills, mirroring the Ivan · Meadow design. */
+function PhaseStepper({ status }: { status: ProblemSessionStatus }) {
+  const current = phaseIndex(status)
+  return (
+    <div className="phase-stepper" aria-label="Problem phases">
+      {PHASES.map((label, i) => {
+        const state = i < current ? 'done' : i === current ? 'current' : 'upcoming'
+        return (
+          <span
+            key={label}
+            className={`phase-step phase-step-${state}`}
+            aria-current={state === 'current' ? 'step' : undefined}
+          >
+            {i + 1} · {label}
+            {state === 'done' ? ' ✓' : ''}
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
 function ProblemView({ onOpenSettings }: { onOpenSettings: () => void }) {
   const status = useProblems((s) => s.status)
   const problem = useProblems((s) => s.problem)
@@ -158,6 +189,7 @@ function ProblemView({ onOpenSettings }: { onOpenSettings: () => void }) {
       </div>
 
       <aside className="trainer-side">
+        <PhaseStepper status={status} />
         <div className="panel trainer-head">
           <div className="trainer-head-row">
             <div>

@@ -5,6 +5,10 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- feat(ui): Ivan · Meadow redesign — sage-green light theme (Nunito/Manrope, pill nav,
+  gradient hero cards, rounded white panels, green board), rebrand to "Ivan", a new
+  "Today" home screen with a real localStorage streak + daily-goal, problems phase
+  stepper, and a mobile bottom nav
 - feat(problems): serve problems without motif hints — random start, motif revealed after
   the solve
 - ci(deploy): publish the app to GitHub Pages on every push to main; runtime asset

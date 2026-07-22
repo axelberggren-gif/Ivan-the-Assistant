@@ -12,7 +12,7 @@ export default function BoardPanel() {
   const draggable = status === 'playing'
 
   const arrows: Arrow[] = hintArrow
-    ? [[hintArrow.from as Square, hintArrow.to as Square, '#d9a35a']]
+    ? [[hintArrow.from as Square, hintArrow.to as Square, 'oklch(0.6 0.13 150)']]
     : []
 
   function onPieceDrop(source: Square, target: Square, piece: Piece): boolean {
@@ -32,9 +32,9 @@ export default function BoardPanel() {
         arePiecesDraggable={draggable}
         customArrows={arrows}
         animationDuration={250}
-        customBoardStyle={{ borderRadius: '8px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }}
-        customDarkSquareStyle={{ backgroundColor: '#8a6446' }}
-        customLightSquareStyle={{ backgroundColor: '#e6d3b1' }}
+        customBoardStyle={{ borderRadius: '16px', boxShadow: '0 12px 30px rgba(0,0,0,0.16)' }}
+        customDarkSquareStyle={{ backgroundColor: 'oklch(0.62 0.11 150)' }}
+        customLightSquareStyle={{ backgroundColor: '#e9f0dd' }}
       />
     </div>
   )
