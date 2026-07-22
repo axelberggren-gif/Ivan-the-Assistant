@@ -1,6 +1,8 @@
 # 0003 — Problems mode: bundled Lichess problems + BYOK reasoning coach
 
-- **Status:** Accepted
+- **Status:** Accepted — BYOK chosen by the owner (Axel) in the 2026-07-22 design session,
+  from four presented options (BYOK / hosted proxy / local model / no AI). The owner's
+  merge of this PR is the final sign-off (per ADR-0002, a human is always the last gate).
 - **Date:** 2026-07-22
 
 ## Context
