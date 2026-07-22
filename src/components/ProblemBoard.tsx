@@ -31,9 +31,9 @@ export default function ProblemBoard() {
         boardOrientation={userColor}
         arePiecesDraggable={draggable}
         animationDuration={250}
-        customBoardStyle={{ borderRadius: '8px', boxShadow: '0 8px 32px rgba(0,0,0,0.45)' }}
-        customDarkSquareStyle={{ backgroundColor: '#8a6446' }}
-        customLightSquareStyle={{ backgroundColor: '#e6d3b1' }}
+        customBoardStyle={{ borderRadius: '16px', boxShadow: '0 12px 30px rgba(0,0,0,0.16)' }}
+        customDarkSquareStyle={{ backgroundColor: 'oklch(0.62 0.11 150)' }}
+        customLightSquareStyle={{ backgroundColor: '#e9f0dd' }}
       />
     </div>
   )

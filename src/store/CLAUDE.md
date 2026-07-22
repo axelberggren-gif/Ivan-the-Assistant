@@ -27,6 +27,11 @@
 
 ## Recent changes
 
+- `activity.ts` (+ `activity.test.ts`): tiny localStorage tracker for the Today screen —
+  day-streak + puzzles-solved-today. The date maths (`advance`, `withSolved`, `dateKey`)
+  is pure and Node-testable; `loadActivity`/`persistActivity` wrap storage. No backend,
+  no accounts (AGENTS.md invariant 6). App records solves by watching the problems store's
+  `solvedCount`.
 - Problems served unlabeled: `startProblem`/`nextProblem` draw a weighted-random problem
   across all theme files (no `pickTheme`); the motif is revealed only in the solved notice.
 - Problems session store: read → reason → solve loop with injected deps (Milestone 6).

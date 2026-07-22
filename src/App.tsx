@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { LlmAPI, SessionDeps } from './types'
 import { createEngine } from './engine'
 import { createBook } from './book'
@@ -13,12 +13,24 @@ import { createProblemSource } from './problems'
 import { createLlm } from './llm'
 import { createProblemsStore, type ProblemsStore } from './store/problems'
 import { ProblemsStoreContext } from './store/problemsContext'
+import { loadActivity, persistActivity, withSolved, type ActivityState } from './store/activity'
 import OpeningPicker from './components/OpeningPicker'
 import TrainerScreen from './components/TrainerScreen'
 import InsightsScreen from './components/InsightsScreen'
 import ProblemsScreen from './components/ProblemsScreen'
+import TodayScreen from './components/TodayScreen'
 
-type View = 'train' | 'problems' | 'insights'
+type View = 'today' | 'train' | 'problems' | 'insights'
+
+/** Personal training tool first (AGENTS.md) — the owner's name for the greeting. */
+const USER_NAME = 'Axel'
+
+const NAV_ITEMS: { view: View; label: string; icon: string }[] = [
+  { view: 'today', label: 'Today', icon: '🏠' },
+  { view: 'train', label: 'Train', icon: '♟' },
+  { view: 'problems', label: 'Problems', icon: '🎯' },
+  { view: 'insights', label: 'Insights', icon: '📈' },
+]
 
 interface DepsResult {
   deps: SessionDeps | null
@@ -86,7 +98,37 @@ export default function App() {
   const store = useMemo(() => (deps ? createSessionStore(deps) : null), [deps])
   const problems = useMemo(() => buildProblems(deps), [deps])
 
-  const [view, setView] = useState<View>('train')
+  const [view, setView] = useState<View>('today')
+
+  // Daily activity (streak + goal) for the Today screen. Rolled forward once on
+  // mount; solved puzzles are recorded by watching the problems store.
+  const [activity, setActivity] = useState<ActivityState>(loadActivity)
+  const [puzzleCount, setPuzzleCount] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!problems) return
+    const pStore = problems.store
+    const applyManifest = (m: { total: number } | null | undefined) => {
+      if (m && typeof m.total === 'number') setPuzzleCount(m.total)
+    }
+    applyManifest(pStore.getState().manifest)
+    // Surfaces the real puzzle count on the Today card; idempotent in the store.
+    if (!pStore.getState().manifest) pStore.getState().loadManifest()
+
+    let lastSolved = pStore.getState().solvedCount
+    return pStore.subscribe((s) => {
+      applyManifest(s.manifest)
+      if (s.solvedCount > lastSolved) {
+        const delta = s.solvedCount - lastSolved
+        lastSolved = s.solvedCount
+        setActivity((a) => {
+          const next = withSolved(a, delta)
+          persistActivity(next)
+          return next
+        })
+      }
+    })
+  }, [problems])
 
   // Dev-only handles for driving/inspecting the stores from the console.
   if (import.meta.env.DEV && store) {
@@ -115,11 +157,11 @@ export default function App() {
     )
   }
 
-  // "Train it now" from the insights dashboard: switch to the trainer and, if
-  // no session is in progress (status 'picking'), start the opening directly.
-  // If a session IS running we do NOT call pickOpening — it would silently
-  // reset the user's game mid-move; we just switch views and the picker's
-  // recommendation banner offers the same one-click start once they're back.
+  // "Train it now" from the insights dashboard / Today resume card: switch to
+  // the trainer and, if no session is in progress (status 'picking'), start the
+  // opening directly. If a session IS running we do NOT call pickOpening — it
+  // would silently reset the user's game mid-move; we just switch views and the
+  // picker's recommendation banner offers the same one-click start once back.
   const handleTrain = (openingId: string) => {
     if (store.getState().status === 'picking') {
       store.getState().pickOpening(openingId)
@@ -134,6 +176,8 @@ export default function App() {
       onTrain={handleTrain}
       hasInsights={insightsStore !== null}
       problems={problems}
+      activity={activity}
+      puzzleCount={puzzleCount}
     />
   )
 
@@ -155,43 +199,70 @@ export default function App() {
 function Header({
   view,
   onSelectView,
+  streak,
 }: {
   view?: View
   onSelectView?: (v: View) => void
+  streak?: number
 }) {
   return (
     <header className="app-header">
-      <span className="app-logo" aria-hidden="true">
-        ♞
-      </span>
-      <h1>Chess Coach</h1>
-      <span className="app-tagline">opening trainer</span>
+      <div className="app-brand">
+        <span className="app-logo" aria-hidden="true">
+          ♞
+        </span>
+        <span className="app-name">Ivan</span>
+      </div>
+
       {view && onSelectView && (
         <nav className="nav-tabs" aria-label="App sections">
-          <button
-            type="button"
-            className={`nav-tab${view === 'train' ? ' nav-tab-active' : ''}`}
-            onClick={() => onSelectView('train')}
-          >
-            Train
-          </button>
-          <button
-            type="button"
-            className={`nav-tab${view === 'problems' ? ' nav-tab-active' : ''}`}
-            onClick={() => onSelectView('problems')}
-          >
-            Problems
-          </button>
-          <button
-            type="button"
-            className={`nav-tab${view === 'insights' ? ' nav-tab-active' : ''}`}
-            onClick={() => onSelectView('insights')}
-          >
-            Insights
-          </button>
+          {NAV_ITEMS.map((item) => (
+            <button
+              key={item.view}
+              type="button"
+              className={`nav-tab${view === item.view ? ' nav-tab-active' : ''}`}
+              onClick={() => onSelectView(item.view)}
+            >
+              {item.label}
+            </button>
+          ))}
         </nav>
       )}
+
+      {view && onSelectView && (
+        <div className="app-header-right">
+          {typeof streak === 'number' && streak > 0 && (
+            <span className="streak-badge" title={`${streak}-day streak`}>
+              🔥 {streak}
+            </span>
+          )}
+          <span className="app-avatar" aria-hidden="true">
+            {USER_NAME.charAt(0)}
+          </span>
+        </div>
+      )}
     </header>
+  )
+}
+
+/** Fixed bottom navigation shown on narrow (phone) viewports. */
+function MobileNav({ view, onSelectView }: { view: View; onSelectView: (v: View) => void }) {
+  return (
+    <nav className="mobile-nav" aria-label="App sections">
+      {NAV_ITEMS.map((item) => (
+        <button
+          key={item.view}
+          type="button"
+          className={`mobile-nav-item${view === item.view ? ' mobile-nav-item-active' : ''}`}
+          onClick={() => onSelectView(item.view)}
+        >
+          <span className="mobile-nav-icon" aria-hidden="true">
+            {item.icon}
+          </span>
+          <span className="mobile-nav-label">{item.label}</span>
+        </button>
+      ))}
+    </nav>
   )
 }
 
@@ -201,22 +272,39 @@ function Shell({
   onTrain,
   hasInsights,
   problems,
+  activity,
+  puzzleCount,
 }: {
   view: View
   onSelectView: (v: View) => void
   onTrain: (openingId: string) => void
   hasInsights: boolean
   problems: ProblemsParts | null
+  activity: ActivityState
+  puzzleCount: number | null
 }) {
   const status = useSession((s) => s.status)
   const engineInitializing = useSession((s) => s.engineInitializing)
 
   return (
     <div className="app">
-      <Header view={view} onSelectView={onSelectView} />
+      <Header view={view} onSelectView={onSelectView} streak={activity.streak} />
       <ErrorBanner />
       <main className="app-main">
-        {view === 'problems' ? (
+        {view === 'today' ? (
+          <TodayScreen
+            userName={USER_NAME}
+            streak={activity.streak}
+            solvedToday={activity.solvedToday}
+            puzzleCount={puzzleCount}
+            hasProblems={problems !== null}
+            hasInsights={hasInsights}
+            onResume={onTrain}
+            onTrain={() => onSelectView('train')}
+            onProblems={() => onSelectView('problems')}
+            onInsights={() => onSelectView('insights')}
+          />
+        ) : view === 'problems' ? (
           problems ? (
             <ProblemsScreen llm={problems.llm} />
           ) : (
@@ -245,6 +333,7 @@ function Shell({
           <TrainerScreen />
         )}
       </main>
+      <MobileNav view={view} onSelectView={onSelectView} />
     </div>
   )
 }
