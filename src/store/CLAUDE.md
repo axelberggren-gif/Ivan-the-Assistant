@@ -27,6 +27,8 @@
 
 ## Recent changes
 
+- Problems served unlabeled: `startProblem`/`nextProblem` draw a weighted-random problem
+  across all theme files (no `pickTheme`); the motif is revealed only in the solved notice.
 - Problems session store: read → reason → solve loop with injected deps (Milestone 6).
 - Fix-gated retry + notice/hint-arrow handling.
 - Initial session store with injected deps.

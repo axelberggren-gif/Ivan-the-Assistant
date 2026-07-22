@@ -46,7 +46,7 @@ The single correct move in the position where the user blundered — authored fo
 One training run of one opening from the start position until a blunder stop, the middlegame move cap (~move 25), or restart.
 
 **Problem**:
-A bundled tactics position (curated from the Lichess CC0 puzzle database) solved in three gated phases: read → reason → solve. Always a 2–3 move line, never a one-mover.
+A bundled tactics position (curated from the Lichess CC0 puzzle database) solved in three gated phases: read → reason → solve. Always a 2–3 move line, never a one-mover. Served unlabeled — no motif or theme is shown before or during the attempt; the motif is revealed only after the solve.
 _Avoid_: puzzle (in prose; the upstream dataset keeps its own naming), exercise
 
 **Read check**:

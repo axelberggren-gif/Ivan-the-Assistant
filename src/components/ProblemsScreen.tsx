@@ -24,7 +24,7 @@ export default function ProblemsScreen({ llm }: { llm: LlmAPI }) {
     <>
       <ProblemsErrorBanner />
       {status === 'picking' ? (
-        <ThemePicker onOpenSettings={openSettings} />
+        <StartScreen onOpenSettings={openSettings} />
       ) : status === 'loading' ? (
         <div className="loading-screen">
           <span className="spinner spinner-large" aria-hidden="true" />
@@ -69,15 +69,20 @@ function ProblemsErrorBanner() {
   )
 }
 
-function ThemePicker({ onOpenSettings }: { onOpenSettings: () => void }) {
+/**
+ * Problems start screen. Problems are served UNLABELED — no theme cards, no
+ * motif anywhere before or during the attempt; the motif is revealed only
+ * after the solve (owner decision, 2026-07-22).
+ */
+function StartScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
   const manifest = useProblems((s) => s.manifest)
   const manifestError = useProblems((s) => s.manifestError)
   const loadManifest = useProblems((s) => s.loadManifest)
-  const pickTheme = useProblems((s) => s.pickTheme)
+  const startProblem = useProblems((s) => s.startProblem)
   const solvedCount = useProblems((s) => s.solvedCount)
   const attemptedCount = useProblems((s) => s.attemptedCount)
 
-  // Idempotent in the store — safe to call on every mount of the picker.
+  // Idempotent in the store — safe to call on every mount of the start screen.
   useEffect(() => {
     loadManifest()
   }, [loadManifest])
@@ -86,10 +91,11 @@ function ThemePicker({ onOpenSettings }: { onOpenSettings: () => void }) {
     <div className="picker problems-picker">
       <div className="picker-intro problems-picker-intro">
         <div>
-          <h2>Pick a problem theme</h2>
+          <h2>Problems</h2>
           <p>
             Three gated phases per problem: read the position, write your reasoning, then
-            prove it on the board. A wrong move ends the attempt — no guessing.
+            prove it on the board. A wrong move ends the attempt — no guessing, and no
+            hints about what to look for.
           </p>
         </div>
         <button
@@ -121,26 +127,13 @@ function ThemePicker({ onOpenSettings }: { onOpenSettings: () => void }) {
           <p>Loading the problem sets…</p>
         </div>
       ) : (
-        <div className="picker-grid">
-          {manifest.themes.map((theme) => (
-            <button
-              key={theme.id}
-              type="button"
-              className="opening-card theme-card"
-              onClick={() => pickTheme(theme.id)}
-            >
-              <div className="opening-card-top">
-                <span className="opening-eco">
-                  ~{manifest.ratingMin}–{manifest.ratingMax}
-                </span>
-              </div>
-              <h3 className="opening-name">{theme.name}</h3>
-              <p className="opening-desc">{theme.description}</p>
-              <div className="opening-meta">
-                {theme.count} problem{theme.count === 1 ? '' : 's'}
-              </div>
-            </button>
-          ))}
+        <div className="problems-start">
+          <button type="button" className="btn btn-primary problems-start-btn" onClick={startProblem}>
+            Start a problem
+          </button>
+          <p className="problems-start-meta">
+            {manifest.total} problems · rating ~{manifest.ratingMin}–{manifest.ratingMax}
+          </p>
         </div>
       )}
 
@@ -153,7 +146,6 @@ function ThemePicker({ onOpenSettings }: { onOpenSettings: () => void }) {
 
 function ProblemView({ onOpenSettings }: { onOpenSettings: () => void }) {
   const status = useProblems((s) => s.status)
-  const themeName = useProblems((s) => s.themeName)
   const problem = useProblems((s) => s.problem)
   const userColor = useProblems((s) => s.userColor)
   const backToPicker = useProblems((s) => s.backToPicker)
@@ -169,7 +161,8 @@ function ProblemView({ onOpenSettings }: { onOpenSettings: () => void }) {
         <div className="panel trainer-head">
           <div className="trainer-head-row">
             <div>
-              <h2 className="trainer-opening-name">{themeName ?? 'Problem'}</h2>
+              {/* No motif here — the problem stays unlabeled until solved. */}
+              <h2 className="trainer-opening-name">Problem</h2>
               <div className="trainer-opening-meta">
                 {problem ? `Rating ${problem.rating} · ` : ''}you play {userColor}
               </div>
