@@ -16,6 +16,7 @@ export {
   readCheckComment,
   wrongMoveExplanation,
   fixReminder,
+  curatedMotifNames,
   solvedMessage,
   setupMoveNotice,
   selfCheckNotice,

@@ -257,6 +257,12 @@ harsh): most problems sit in the ~1200–1900 rating band.
 
 ### 8.1 The three phases (gated — each unlocks the next)
 
+**Phase 0 — an unlabeled problem is served.** Problems start at random across the whole
+bundled set with **no motif or theme shown** before or during the attempt — the user must
+find the idea without any indication where to look. The motif is revealed only after the
+solve, as the learning payoff. (Owner decision from 2026-07-22 feedback: the original
+by-motif picker gave too many clues.)
+
 **Phase 1 — Read (situational awareness, machine-checked).**
 Before anything else, two quick checks answered via simple controls:
 1. **Material count** — who is up material and by how much (verified against the FEN).
@@ -292,7 +298,9 @@ The user plays their moves out; the opponent's forced replies animate. Anti-gues
   samples a balanced ~6k set across theme × rating band, and writes per-theme JSON plus a
   `manifest.json` to `public/problems/`. Output is committed; the raw CSV never is.
 - **Delivery**: fetched on demand per theme (like `public/engine/`), keeping the JS bundle
-  small. Each theme file is ~50–150 KB gzipped.
+  small. Each theme file is ~50–150 KB gzipped. The per-theme split is storage/delivery
+  only — problems are served unlabeled (§8.1); the motif surfaces only in the post-solve
+  reveal.
 - **Format gotcha**: the Lichess FEN is the position *before* the opponent's setup move;
   `Moves[0]` is that setup move (auto-played on load), and the user's solution starts at
   `Moves[1]`. Getting this backwards is the classic integration bug.
@@ -326,9 +334,11 @@ The user plays their moves out; the opponent's forced replies animate. Anti-gues
 
 - **6a — Data**: pipeline script, bundled problem set, `Problem` types, chess.js replay
   test. (Content lands before UI.)
-- **6b — Solve loop, engine-only**: problem picker (by motif/difficulty), read-check gate,
-  solve phase with stop-and-explain + fix-move retry. No LLM yet — reasoning phase shows
-  the engine line for self-checking.
+- **6b — Solve loop, engine-only**: problems start screen (problems served unlabeled, at
+  random across the set — the motif is revealed after the solve; originally a by-motif
+  picker, dropped per 2026-07-22 owner feedback), read-check gate, solve phase with
+  stop-and-explain + fix-move retry. No LLM yet — reasoning phase shows the engine line
+  for self-checking.
 - **6c — Reasoning coach**: settings screen for the key, `src/llm/` client + prompt
   builders + JSON validation, graded feedback UI.
 - **6d — Close the loop**: insights integration — recommend problems by the motifs and

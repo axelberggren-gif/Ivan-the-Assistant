@@ -7,7 +7,7 @@
  * Tone: encouraging, concrete, CONTEXT.md vocabulary (Problem, Read check,
  * Reasoning, Setup move, fix move, stop-and-explain).
  */
-import type { Color, VerdictBucket } from '../types'
+import type { Color, ProblemThemeInfo, VerdictBucket } from '../types'
 
 // ---------------------------------------------------------------------------
 // Read check
@@ -162,23 +162,55 @@ export function fixReminder(expectedSan: string): string {
   return `Not that one — the fix move here is ${expectedSan}. Play it to continue the line.`
 }
 
+/**
+ * Display names of a problem's motif tags, filtered to the curated set from
+ * the manifest. Problems are served unlabeled — this mapping exists ONLY for
+ * the post-solve reveal (owner decision, 2026-07-22). Uncurated tags stay
+ * hidden; order follows the manifest.
+ */
+export function curatedMotifNames(
+  problemThemes: string[],
+  curated: ProblemThemeInfo[],
+): string[] {
+  return curated.filter((t) => problemThemes.includes(t.id)).map((t) => t.name)
+}
+
+/** "a fork", "a discovered attack", "a fork and a pin" — article-aware list. */
+function motifPhrase(names: string[]): string {
+  const items = names.map((name) => {
+    const lower = name.toLowerCase()
+    const article = /^[aeiou]/.test(lower) ? 'an' : 'a'
+    return `${article} ${lower}`
+  })
+  if (items.length === 1) return items[0]
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
 export interface SolvedOpts {
   /** Did the attempt need one or more stop-and-explains along the way? */
   hadStops: boolean
-  /** Display name of the problem's theme, e.g. "Fork" */
-  themeName?: string
+  /**
+   * Curated motif display names (from `curatedMotifNames`). Revealed only
+   * NOW, as the learning payoff — never before or during the attempt.
+   */
+  motifNames?: string[]
 }
 
 /** Wrap-up when the whole solution line has been played out. */
 export function solvedMessage(opts: SolvedOpts): string {
-  const motif = opts.themeName ? `${opts.themeName} problem` : 'problem'
+  const motifs = opts.motifNames ?? []
   if (opts.hadStops) {
+    const reveal = motifs.length > 0 ? ` That was ${motifPhrase(motifs)}.` : ''
     return (
-      `Solved — it took a stop-and-explain on the way, but you got there. ` +
-      `Run another ${motif} until the line comes without a stop.`
+      `Solved — it took a stop-and-explain on the way, but you got there.${reveal} ` +
+      `Run another problem until the line comes without a stop.`
     )
   }
-  return `Solved in one clean line — you read it, you reasoned it, you proved it. That's how a ${motif} should feel.`
+  const reveal =
+    motifs.length > 0
+      ? ` That was ${motifPhrase(motifs)} — you found it with no hints.`
+      : ' You found it with no hints.'
+  return `Solved in one clean line — you read it, you reasoned it, you proved it.${reveal}`
 }
 
 // ---------------------------------------------------------------------------

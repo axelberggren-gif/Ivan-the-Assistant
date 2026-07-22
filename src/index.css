@@ -1251,7 +1251,25 @@ button {
 
 /* ---------------------------------------------------------- Problems mode */
 
-/* theme picker */
+/* start screen (problems are served unlabeled — no theme cards) */
+
+.problems-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px 0;
+}
+
+.problems-start-btn {
+  padding: 14px 32px;
+  font-size: 17px;
+}
+
+.problems-start-meta {
+  font-size: 13px;
+  color: var(--text-faint);
+}
 
 .problems-picker-intro {
   display: flex;

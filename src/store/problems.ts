@@ -25,6 +25,7 @@ import type {
 import {
   analysisCpWhite,
   checkRead,
+  curatedMotifNames,
   engineLineSummaries,
   fixReminder,
   isSolutionMove,
@@ -42,8 +43,6 @@ export interface ProblemsState {
   status: ProblemSessionStatus
   manifest: ProblemManifest | null
   manifestError: string | null
-  themeId: string | null
-  themeName: string | null
   problem: Problem | null
   /** Side to move AFTER the setup move — the side the user solves for. */
   userColor: Color
@@ -89,7 +88,13 @@ export interface ProblemsState {
 
   // Actions
   loadManifest: () => void
-  pickTheme: (themeId: string) => void
+  /**
+   * Start a uniformly random problem across ALL themes: theme file picked
+   * weighted by its manifest count, then a random problem within it. No motif
+   * is shown before or during the attempt (owner decision, 2026-07-22).
+   */
+  startProblem: () => void
+  /** A fresh random problem from anywhere — same draw as startProblem. */
   nextProblem: () => void
   submitReadCheck: (answer: ReadCheckAnswer) => void
   setReasoning: (text: string) => void
@@ -130,6 +135,23 @@ function uciParts(uci: string): { from: string; to: string; promotion?: string }
   }
 }
 
+/**
+ * Pick a theme file weighted by its manifest `count`, so that a subsequent
+ * uniform pick within the file is a uniform pick across the WHOLE problem set
+ * (theme files are just storage; problems are served unlabeled).
+ */
+function pickWeightedThemeId(manifest: ProblemManifest): string | null {
+  const themes = manifest.themes.filter((t) => t.count > 0)
+  const total = themes.reduce((sum, t) => sum + t.count, 0)
+  if (total === 0) return null
+  let r = Math.random() * total
+  for (const t of themes) {
+    r -= t.count
+    if (r < 0) return t.id
+  }
+  return themes[themes.length - 1].id
+}
+
 // ---------------------------------------------------------------------------
 // Store factory
 // ---------------------------------------------------------------------------
@@ -151,9 +173,6 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
   let epoch = 0
 
   let timers: ReturnType<typeof setTimeout>[] = []
-
-  /** Problems of the currently picked theme (for nextProblem). */
-  let themeProblems: Problem[] = []
 
   /** UCI/SAN moves applied since problem.fen (setup move included). */
   let playedUci: string[] = []
@@ -216,7 +235,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
      * setup move after a short delay, then open the read check.
      * Caller must have bumped `epoch` and cleared timers already.
      */
-    function startProblem(problem: Problem, myEpoch: number): void {
+    function beginProblem(problem: Problem, myEpoch: number): void {
       try {
         chess.load(problem.fen)
       } catch (e) {
@@ -365,14 +384,46 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       }
     }
 
+    /**
+     * Start a fresh uniformly random problem across the whole set: theme file
+     * weighted by manifest count, then a random problem within it. Theme
+     * files are cached by the loader after the first fetch, so repeat draws
+     * stay cheap. Backs both startProblem and nextProblem.
+     */
+    function startRandomProblem(): void {
+      const manifest = get().manifest
+      if (!manifest) return // the start button only renders once the manifest is loaded
+      const themeId = pickWeightedThemeId(manifest)
+      if (themeId === null) {
+        set({ error: 'No problems available — try reloading' })
+        return
+      }
+      epoch++
+      const myEpoch = epoch
+      clearTimers()
+      set({ status: 'loading', problem: null, error: null })
+      void (async () => {
+        try {
+          const problems = await deps.problems.theme(themeId)
+          if (epoch !== myEpoch) return
+          if (problems.length === 0) {
+            set({ status: 'picking', error: 'No problems available — try reloading' })
+            return
+          }
+          beginProblem(pickRandom(problems), myEpoch)
+        } catch (e) {
+          if (epoch !== myEpoch) return
+          set({ status: 'picking', error: errMsg(e, 'Could not load a problem') })
+        }
+      })()
+    }
+
     // -- Public API -----------------------------------------------------------
 
     return {
       status: 'picking',
       manifest: null,
       manifestError: null,
-      themeId: null,
-      themeName: null,
       problem: null,
       userColor: 'white',
       fen: START_FEN,
@@ -410,47 +461,9 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         })()
       },
 
-      pickTheme: (themeId: string) => {
-        epoch++
-        const myEpoch = epoch
-        clearTimers()
-        const info = get().manifest?.themes.find((t) => t.id === themeId)
-        set({
-          themeId,
-          themeName: info?.name ?? themeId,
-          status: 'loading',
-          problem: null,
-          error: null,
-        })
-        void (async () => {
-          try {
-            const problems = await deps.problems.theme(themeId)
-            if (epoch !== myEpoch) return
-            if (problems.length === 0) {
-              set({ status: 'picking', error: 'No problems available for this theme' })
-              return
-            }
-            themeProblems = problems
-            startProblem(pickRandom(problems), myEpoch)
-          } catch (e) {
-            if (epoch !== myEpoch) return
-            set({ status: 'picking', error: errMsg(e, 'Could not load problems for this theme') })
-          }
-        })()
-      },
+      startProblem: () => startRandomProblem(),
 
-      nextProblem: () => {
-        const { themeId } = get()
-        if (!themeId) return
-        if (themeProblems.length === 0) {
-          // Theme list not cached (shouldn't happen) — go through pickTheme.
-          get().pickTheme(themeId)
-          return
-        }
-        epoch++
-        clearTimers()
-        startProblem(pickRandom(themeProblems), epoch)
-      },
+      nextProblem: () => startRandomProblem(),
 
       submitReadCheck: (answer: ReadCheckAnswer) => {
         const st = get()
@@ -558,7 +571,12 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
               historySan: historyAfter,
               notice: solvedMessage({
                 hadStops: st.hadStops,
-                themeName: st.themeName ?? undefined,
+                // The motif reveal is the learning payoff — shown ONLY here,
+                // never before or during the attempt (owner decision).
+                motifNames: curatedMotifNames(
+                  st.problem.themes,
+                  get().manifest?.themes ?? [],
+                ),
               }),
               requiredFixUci: null,
               solvedCount: get().solvedCount + 1,
@@ -653,11 +671,8 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         preStopUci = []
         preStopSan = []
         attemptCounted = false
-        themeProblems = []
         set({
           status: 'picking',
-          themeId: null,
-          themeName: null,
           problem: null,
           userColor: 'white',
           fen: START_FEN,

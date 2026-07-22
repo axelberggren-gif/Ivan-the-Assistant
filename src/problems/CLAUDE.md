@@ -30,4 +30,6 @@ problems store/UI. Phases per PLAN.md §8: read → reason → solve.
 
 ## Recent changes
 
+- No motif hints (owner decision, 2026-07-22): `solvedMessage` + `curatedMotifNames` reveal
+  the motif only after the solve; theme files are storage only, problems serve unlabeled.
 - Initial problems-mode logic: loader, read check, solve matching, templates (Milestone 6b).

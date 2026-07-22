@@ -129,20 +129,22 @@ const MANIFEST: ProblemManifest = {
   ratingMax: 1900,
   total: 2,
   themes: [
-    { id: 'backRank', name: 'Back-rank mate', description: 'Weak back rank', file: 'backRank.json', count: 1 },
+    { id: 'backRankMate', name: 'Back-Rank Mate', description: 'Weak back rank', file: 'backRankMate.json', count: 1 },
     { id: 'deflection', name: 'Deflection', description: 'Pull the defender away', file: 'deflection.json', count: 1 },
   ],
 }
 
-function makeProblems(): ProblemSource & { manifestCalls: number } {
+function makeProblems(): ProblemSource & { manifestCalls: number; themeCalls: string[] } {
   const src = {
     manifestCalls: 0,
+    themeCalls: [] as string[],
     manifest: async () => {
       src.manifestCalls++
       return MANIFEST
     },
     theme: async (themeId: string): Promise<Problem[]> => {
-      if (themeId === 'backRank') return [P1]
+      src.themeCalls.push(themeId)
+      if (themeId === 'backRankMate') return [P1]
       if (themeId === 'deflection') return [P2]
       return []
     },
@@ -188,11 +190,26 @@ describe('createProblemsStore', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks() // un-spy Math.random between tests
   })
 
+  /**
+   * startProblem draws randomly across the whole set (theme weighted by
+   * manifest count, then uniform within the file). With two count-1 themes,
+   * Math.random() → 0 lands on P1 (backRankMate), → 0.9 lands on P2
+   * (deflection); the same mocked value then picks index 0 in the 1-problem
+   * file either way.
+   */
+  function rigRandom(problem: 'p1' | 'p2'): void {
+    vi.spyOn(Math, 'random').mockReturnValue(problem === 'p1' ? 0 : 0.9)
+  }
+
   /** Drive the store to the read check (setup move auto-played). */
-  async function toRead(themeId = 'backRank'): Promise<void> {
-    store.getState().pickTheme(themeId)
+  async function toRead(problem: 'p1' | 'p2' = 'p1'): Promise<void> {
+    store.getState().loadManifest() // idempotent; startProblem needs the manifest
+    await vi.advanceTimersByTimeAsync(0)
+    rigRandom(problem)
+    store.getState().startProblem()
     expect(store.getState().status).toBe('loading')
     await vi.advanceTimersByTimeAsync(0) // theme fetch + engine init
     await vi.advanceTimersByTimeAsync(600) // setup-move delay
@@ -200,20 +217,20 @@ describe('createProblemsStore', () => {
   }
 
   async function toReason(
-    themeId = 'backRank',
+    problem: 'p1' | 'p2' = 'p1',
     answer: ReadCheckAnswer = { materialDiff: 14, verdict: 'white_winning' },
   ): Promise<void> {
-    await toRead(themeId)
+    await toRead(problem)
     store.getState().submitReadCheck(answer)
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getState().status).toBe('reason')
   }
 
   async function toSolve(
-    themeId = 'backRank',
+    problem: 'p1' | 'p2' = 'p1',
     answer?: ReadCheckAnswer,
   ): Promise<void> {
-    await toReason(themeId, answer)
+    await toReason(problem, answer)
     store.getState().submitReasoning()
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getState().status).toBe('solve')
@@ -230,16 +247,12 @@ describe('createProblemsStore', () => {
     expect(store.getState().manifestError).toBeNull()
   })
 
-  it('picks a theme, inits the engine, and auto-plays the setup move', async () => {
-    store.getState().loadManifest()
-    await vi.advanceTimersByTimeAsync(0)
+  it('startProblem inits the engine and auto-plays the setup move', async () => {
     await toRead()
 
     const st = store.getState()
     expect(engine.initCalls).toBe(1)
     expect(st.engineInitializing).toBe(false)
-    expect(st.themeId).toBe('backRank')
-    expect(st.themeName).toBe('Back-rank mate')
     expect(st.problem?.id).toBe('p1')
     expect(st.historySan).toEqual(['Kh8'])
     expect(st.fen).toBe(SOLVE_FEN_1)
@@ -247,9 +260,34 @@ describe('createProblemsStore', () => {
     expect(st.userColor).toBe('white') // side to move AFTER the setup move
   })
 
+  it('startProblem draws across ALL theme files, weighted by manifest count', async () => {
+    // Rigged high, the weighted draw must land in the SECOND theme file.
+    await toRead('p2')
+    expect(problems.themeCalls).toEqual(['deflection'])
+    expect(store.getState().problem?.id).toBe('p2')
+  })
+
+  it('startProblem is a no-op until the manifest is loaded', () => {
+    store.getState().startProblem()
+    expect(store.getState().status).toBe('picking')
+    expect(problems.themeCalls).toEqual([])
+  })
+
+  it('nextProblem draws a fresh random problem from anywhere, not the same theme', async () => {
+    await toSolve() // p1, from the backRankMate file
+    rigRandom('p2')
+    store.getState().nextProblem()
+    expect(store.getState().status).toBe('loading')
+    await vi.advanceTimersByTimeAsync(600)
+    const st = store.getState()
+    expect(st.status).toBe('read')
+    expect(st.problem?.id).toBe('p2')
+    expect(problems.themeCalls).toEqual(['backRankMate', 'deflection'])
+  })
+
   it('read check: correct answers are confirmed by the report', async () => {
     // White is up Q+R = 14 pawns and the engine says mate for White.
-    await toReason('backRank', { materialDiff: 14, verdict: 'white_winning' })
+    await toReason('p1', { materialDiff: 14, verdict: 'white_winning' })
 
     const st = store.getState()
     expect(st.readReport).not.toBeNull()
@@ -265,7 +303,7 @@ describe('createProblemsStore', () => {
   })
 
   it('read check: wrong answers are called out', async () => {
-    await toReason('backRank', { materialDiff: 0, verdict: 'black_winning' })
+    await toReason('p1', { materialDiff: 0, verdict: 'black_winning' })
 
     const st = store.getState()
     expect(st.readReport?.materialCorrect).toBe(false)
@@ -351,7 +389,9 @@ describe('createProblemsStore', () => {
     st = store.getState()
     expect(st.status).toBe('solved')
     expect(st.historySan).toEqual(['Kh8', 'Rb7+', 'Kg8', 'Qa8#'])
-    expect(st.notice).toBeTruthy() // solvedMessage
+    // The motif is revealed ONLY now, as the learning payoff (curated display
+    // name from the manifest, matched against the problem's theme tags).
+    expect(st.notice).toContain('back-rank mate')
     expect(st.hadStops).toBe(false)
     expect(st.solvedCount).toBe(1)
     expect(st.attemptedCount).toBe(1)
@@ -405,6 +445,9 @@ describe('createProblemsStore', () => {
     st = store.getState()
     expect(st.status).toBe('stopped')
     expect(st.attemptedCount).toBe(1)
+    // The stopped state must NOT leak the motif — it is revealed only on a solve.
+    expect(st.stopExplanation?.toLowerCase()).not.toContain('back-rank')
+    expect(st.notice ?? '').not.toContain('back-rank')
 
     // Retry rewinds to before the wrong move and demands the fix move.
     store.getState().retryFromStop()
@@ -440,7 +483,7 @@ describe('createProblemsStore', () => {
 
   it('an unlisted immediate mate counts as correct (Lichess semantics)', async () => {
     // P2 ends 3.Qxb8# — but 3.Rxb8# also mates and must be accepted.
-    await toSolve('deflection', { materialDiff: 6, verdict: 'white_winning' })
+    await toSolve('p2', { materialDiff: 6, verdict: 'white_winning' })
 
     expect(store.getState().userMove('a1', 'a8')).toBe(true) // 2.Ra8+
     await vi.advanceTimersByTimeAsync(700) // ...Rb8 (forced block)
@@ -480,9 +523,12 @@ describe('createProblemsStore', () => {
     expect(store.getState().historySan).toEqual(['Kh8'])
   })
 
-  it('surfaces engine init failures and returns to the picker', async () => {
+  it('surfaces engine init failures and returns to the start screen', async () => {
     engine.init.mockRejectedValueOnce(new Error('wasm failed to load'))
-    store.getState().pickTheme('backRank')
+    store.getState().loadManifest()
+    await vi.advanceTimersByTimeAsync(0)
+    rigRandom('p1')
+    store.getState().startProblem()
     await vi.advanceTimersByTimeAsync(0)
 
     const st = store.getState()
