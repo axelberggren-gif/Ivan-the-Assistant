@@ -11,7 +11,13 @@ export {
   VERDICT_BETTER_MIN,
   VERDICT_WINNING_MIN,
 } from './read'
-export { uciToSan, sanLineFromUci, isSolutionMove, engineLineSummaries } from './solve'
+export {
+  uciToSan,
+  sanLineFromUci,
+  isSolutionMove,
+  engineLineSummaries,
+  formatSanLine,
+} from './solve'
 export {
   readCheckComment,
   wrongMoveExplanation,
@@ -21,5 +27,6 @@ export {
   setupMoveNotice,
   selfCheckNotice,
   oneLineAttemptNotice,
+  exploreHint,
 } from './templates'
 export type { ReadCheckCommentOpts, WrongMoveOpts, SolvedOpts } from './templates'

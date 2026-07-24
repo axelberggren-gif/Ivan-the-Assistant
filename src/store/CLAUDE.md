@@ -27,6 +27,10 @@
 
 ## Recent changes
 
+- Reason-phase scratch board: `problems.ts` gains `exploreSan` state and `exploreMove` /
+  `undoExplore` / `resetExplore` / `commitExploreToReasoning` actions. Exploration runs on a
+  throwaway `scratch` chess instance (the real `chess` is never touched), so trying lines
+  never counts as a solve attempt; committing pastes the numbered notation into `reasoning`.
 - `activity.ts` (+ `activity.test.ts`): tiny localStorage tracker for the Today screen —
   day-streak + puzzles-solved-today. The date maths (`advance`, `withSolved`, `dateKey`)
   is pure and Node-testable; `loadActivity`/`persistActivity` wrap storage. No backend,

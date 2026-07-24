@@ -4,9 +4,11 @@
  *
  * Dev-only Node (>= 20) script. Downloads the Lichess puzzle database
  * (CC0, https://database.lichess.org/#puzzles), filters it down to clean
- * 2–3-move tactics in the club rating range, samples a balanced set per
- * curated motif × rating band, verifies every sampled puzzle through
- * chess.js, and writes per-theme JSON plus a manifest to public/problems/.
+ * 2–4-move tactics across a wide rating spread (~1400–2500), samples a
+ * balanced set per curated motif × rating band, verifies every sampled
+ * puzzle through chess.js, and writes per-theme JSON plus a manifest to
+ * public/problems/. The motif set includes defensive/holding themes so the
+ * read-check verdict isn't always "you're winning".
  *
  * The raw CSV is NEVER committed and never persisted to disk here — the
  * ~250 MB .zst dump is streamed (HTTPS → zstd decompress → readline) and
@@ -46,35 +48,46 @@ import { Chess } from 'chess.js'
 
 const DATASET_URL = 'https://database.lichess.org/lichess_db_puzzle.csv.zst'
 
-const RATING_MIN = 1200
-const RATING_MAX = 1900
+const RATING_MIN = 1400
+const RATING_MAX = 2500
 const POPULARITY_MIN = 90
-const NB_PLAYS_MIN = 1000
+// Harder puzzles get fewer plays than easy ones, so the popularity floor is
+// kept high (quality) while the raw play-count floor is relaxed — otherwise
+// the top band would be starved.
+const NB_PLAYS_MIN = 500
 
-/** Three difficulty bands the sample is balanced across. */
+/**
+ * Four difficulty bands spanning the wider spread (~1400–2500). Sampling is
+ * balanced across them, so the set has a long tail of hard problems, not just
+ * a cluster at the easy end.
+ */
 const RATING_BANDS = [
-  [1200, 1449],
-  [1450, 1699],
-  [1700, 1900],
+  [1400, 1699],
+  [1700, 1999],
+  [2000, 2249],
+  [2250, 2500],
 ]
 
-/** ~1000 problems per motif, split evenly across the rating bands. */
-const TARGET_PER_MOTIF = 1000
-const BUCKET_SIZE = Math.round(TARGET_PER_MOTIF / RATING_BANDS.length) // 333
+/** ~600 problems per motif, split evenly across the rating bands. */
+const TARGET_PER_MOTIF = 600
+const BUCKET_SIZE = Math.round(TARGET_PER_MOTIF / RATING_BANDS.length) // 150
 
 /**
  * Lichess length tags → expected Moves length (moves[0] is the opponent's
  * setup move, so a "2 user moves" puzzle is 4 UCI moves). 'oneMove' puzzles
- * are excluded entirely.
+ * are excluded entirely; 'veryLong' (4 user moves, 8 UCI) adds deeper
+ * calculation to the set (CONTEXT.md: a problem is a 2–4 move line).
  */
-const LENGTH_TAGS = { short: 4, long: 6 }
+const LENGTH_TAGS = { short: 4, long: 6, veryLong: 8 }
 
 /** Seed constant — combined with the dump's source date for the PRNG. */
 const SEED_BASE = 'ivan-problems-v1'
 
 /**
- * The six curated motifs (PLAN.md §8.2). Display names/descriptions are
+ * The curated motifs (PLAN.md §8.2). Display names/descriptions are
  * hand-authored coach copy and flow into manifest.json (ProblemThemeInfo).
+ * The set spans attacking motifs AND defensive/holding play (`defensiveMove`)
+ * so the read-check verdict isn't always "you're winning".
  */
 const MOTIFS = [
   {
@@ -98,6 +111,11 @@ const MOTIFS = [
     description: "Move one piece and unmask another's attack — two threats from a single move.",
   },
   {
+    id: 'doubleCheck',
+    name: 'Double Check',
+    description: 'Two pieces check at once — the king must move, nothing else parries it.',
+  },
+  {
     id: 'backRankMate',
     name: 'Back-Rank Mate',
     description: 'The king is boxed in behind its own pawns — crash through on the last rank.',
@@ -106,6 +124,41 @@ const MOTIFS = [
     id: 'hangingPiece',
     name: 'Hanging Piece',
     description: 'An undefended piece is up for grabs — spot it before your opponent saves it.',
+  },
+  {
+    id: 'trappedPiece',
+    name: 'Trapped Piece',
+    description: 'A piece has run out of safe squares — hem it in and win it.',
+  },
+  {
+    id: 'deflection',
+    name: 'Deflection',
+    description: 'Drag a defender off its post, then strike where it used to guard.',
+  },
+  {
+    id: 'attraction',
+    name: 'Attraction',
+    description: 'Lure a piece — often the king — onto a square where it walks into a tactic.',
+  },
+  {
+    id: 'sacrifice',
+    name: 'Sacrifice',
+    description: 'Give up material now to force a bigger gain, or mate, right after.',
+  },
+  {
+    id: 'intermezzo',
+    name: 'In-Between Move',
+    description: "Slip in a forcing move before the 'obvious' recapture — the zwischenzug.",
+  },
+  {
+    id: 'advancedPawn',
+    name: 'Advanced Pawn',
+    description: 'A pawn near promotion does the work — push it, or use its threat.',
+  },
+  {
+    id: 'defensiveMove',
+    name: 'Defensive Resource',
+    description: "You're under fire — find the only move that holds the position together.",
   },
 ]
 
@@ -541,7 +594,7 @@ async function main() {
     const kept = []
     for (let b = 0; b < RATING_BANDS.length; b++) {
       for (const p of buckets.get(`${motif.id}:${b}`).items) {
-        if ((p.moves.length === 4 || p.moves.length === 6) && replays(p)) {
+        if ((p.moves.length === 4 || p.moves.length === 6 || p.moves.length === 8) && replays(p)) {
           kept.push(p)
         } else {
           droppedInvalid++

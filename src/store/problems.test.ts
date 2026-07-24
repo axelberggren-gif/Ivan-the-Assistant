@@ -409,6 +409,82 @@ describe('createProblemsStore', () => {
     expect(store.getState().historySan).toEqual(['Kh8'])
   })
 
+  it('reason phase: scratch moves build a line without touching the real game', async () => {
+    await toReason() // p1, solveFen = SOLVE_FEN_1 (White to move, fullmove 2)
+
+    // Play a candidate line on the scratch board.
+    expect(store.getState().exploreMove('b2', 'b7')).toBe(true) // Rb7+
+    let st = store.getState()
+    expect(st.exploreSan).toEqual(['Rb7+'])
+    expect(st.fen).not.toBe(SOLVE_FEN_1) // scratch position is shown
+
+    expect(store.getState().exploreMove('h8', 'g8')).toBe(true) // ...Kg8
+    expect(store.getState().exploreSan).toEqual(['Rb7+', 'Kg8'])
+
+    // Take back the last move, then clear the rest.
+    store.getState().undoExplore()
+    expect(store.getState().exploreSan).toEqual(['Rb7+'])
+    store.getState().resetExplore()
+    st = store.getState()
+    expect(st.exploreSan).toEqual([])
+    expect(st.fen).toBe(SOLVE_FEN_1) // board is back at the solve position
+
+    // Illegal scratch moves are rejected (board snaps back).
+    expect(store.getState().exploreMove('a1', 'a4')).toBe(true) // Qa4 is legal
+    store.getState().resetExplore()
+    expect(store.getState().exploreMove('g1', 'g4')).toBe(false) // illegal king jump
+    expect(store.getState().exploreSan).toEqual([])
+  })
+
+  it('reason phase: committing a scratch line pastes numbered notation into the reasoning', async () => {
+    await toReason()
+    store.getState().exploreMove('b2', 'b7') // Rb7+
+    store.getState().exploreMove('h8', 'g8') // ...Kg8
+    store.getState().exploreMove('a1', 'a8') // Qa8#
+
+    store.getState().commitExploreToReasoning()
+    let st = store.getState()
+    // Numbered from the solve position (White to move, fullmove 2), trailing
+    // space so the user goes straight to the "why".
+    expect(st.reasoning).toBe('2.Rb7+ Kg8 3.Qa8# ')
+    expect(st.exploreSan).toEqual([]) // scratch cleared
+    expect(st.fen).toBe(SOLVE_FEN_1) // board reset
+
+    // A second committed line appends on a new line, preserving prior notes.
+    store.getState().setReasoning('2.Rb7+ Kg8 3.Qa8# mates.')
+    store.getState().exploreMove('a1', 'a2') // Qa2 (a different try)
+    store.getState().commitExploreToReasoning()
+    st = store.getState()
+    expect(st.reasoning).toBe('2.Rb7+ Kg8 3.Qa8# mates.\n2.Qa2 ')
+  })
+
+  it('reason phase: uncommitted exploration does not corrupt the solve', async () => {
+    await toReason()
+    // Explore a line but do NOT commit it.
+    store.getState().exploreMove('b2', 'b7')
+    store.getState().exploreMove('h8', 'g8')
+    expect(store.getState().fen).not.toBe(SOLVE_FEN_1)
+
+    // Submitting realigns the board and the real game is intact.
+    store.getState().submitReasoning()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().status).toBe('solve')
+    expect(store.getState().fen).toBe(SOLVE_FEN_1)
+    expect(store.getState().exploreSan).toEqual([])
+
+    // The genuine solve still works from the real position.
+    expect(store.getState().userMove('b2', 'b7')).toBe(true)
+    expect(store.getState().historySan).toEqual(['Kh8', 'Rb7+'])
+  })
+
+  it('exploreMove is a no-op outside the reason phase', async () => {
+    await toSolve() // now in 'solve'
+    expect(store.getState().exploreMove('b2', 'b7')).toBe(false)
+    expect(store.getState().exploreSan).toEqual([])
+    // The solve board is untouched by the rejected scratch move.
+    expect(store.getState().historySan).toEqual(['Kh8'])
+  })
+
   it('wrong move: stop-and-explain references the written reasoning, retry is fix-gated', async () => {
     await toReason()
     const REASONING = 'I think the queen is safe on a2 and I still mate later.'

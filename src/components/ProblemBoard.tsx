@@ -4,21 +4,29 @@ import { useProblems } from '../store/problemsContext'
 
 /**
  * Problems-mode board: same look and drop handling as BoardPanel, but reading
- * from the problems store. Pieces are draggable only in the solve phase — the
- * read and reason phases are hands-off by design (PLAN §8.1).
+ * from the problems store. Pieces are draggable in the solve phase (the real
+ * attempt) and in the reason phase (a throwaway scratchpad for trying lines);
+ * the read phase is hands-off by design (PLAN §8.1).
  */
 export default function ProblemBoard() {
   const fen = useProblems((s) => s.fen)
   const userColor = useProblems((s) => s.userColor)
   const status = useProblems((s) => s.status)
   const userMove = useProblems((s) => s.userMove)
+  const exploreMove = useProblems((s) => s.exploreMove)
 
-  const draggable = status === 'solve'
+  const exploring = status === 'reason'
+  const draggable = status === 'solve' || exploring
 
   function onPieceDrop(source: Square, target: Square, piece: Piece): boolean {
     const isPromotion =
       piece[1] === 'P' && (target[1] === '8' || target[1] === '1')
-    return userMove(source, target, isPromotion ? 'q' : undefined)
+    const promotion = isPromotion ? 'q' : undefined
+    // In the reason phase the board is a scratchpad — moves feed the tried
+    // line, never the real attempt.
+    return exploring
+      ? exploreMove(source, target, promotion)
+      : userMove(source, target, promotion)
   }
 
   return (

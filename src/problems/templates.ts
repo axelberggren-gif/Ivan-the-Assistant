@@ -222,6 +222,17 @@ export function setupMoveNotice(setupSan: string): string {
   return `Your opponent just played ${setupSan}. Read the position before you touch a piece.`
 }
 
+/**
+ * Reason-phase scratch-board hint: the board is a scratchpad here, and a tried
+ * line can be pasted into the notes so the user only writes the "why".
+ */
+export function exploreHint(): string {
+  return (
+    'Try moves on the board to test a line — take it back or clear it anytime. ' +
+    'Nothing here counts as your answer. Add a line to your notes, then say why it works.'
+  )
+}
+
 /** Reason-phase fallback when there is no BYOK key (engine-only self-check). */
 export function selfCheckNotice(): string {
   return (

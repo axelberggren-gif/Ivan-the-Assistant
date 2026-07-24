@@ -251,9 +251,11 @@ This is where insights stop being a dashboard and become coaching:
 
 Classic puzzle trainers reward tap-until-right guessing. This mode forces the habits that
 transfer to real games: **read the position, write down your calculation, then prove it.**
-One-move problems are excluded by design — every problem is a 2–3 move line where the user
-must see the opponent's replies in advance. Difficulty is moderate ("solid positions", some
-harsh): most problems sit in the ~1200–1900 rating band.
+One-move problems are excluded by design — every problem is a 2–4 move line where the user
+must see the opponent's replies in advance. Difficulty spans a wide spread (~1400–2500),
+balanced across bands so there's a long tail of hard problems, not just a cluster at the
+easy end. The motif mix is deliberately varied — attacking motifs plus defensive/holding
+positions — so the read-check verdict isn't always "you're winning".
 
 ### 8.1 The three phases (gated — each unlocks the next)
 
@@ -272,11 +274,15 @@ Before anything else, two quick checks answered via simple controls:
 
 **Phase 2 — Reason (free text, the heart of the exercise).**
 The user writes their idea and calculation in plain language before touching a piece:
-*"I could take on e4 but then the knight hangs, so I take on d4 first."* The **reasoning
-coach** (BYOK LLM, §8.3) compares this prose against Stockfish's lines — never calculating
-itself — and reports: what you got right, what you missed (*"after Bxe4, Re8 pins the
-rook"*), what's wrong. Without an API key, the phase still runs: the user self-checks
-against the revealed engine line (graceful degradation).
+*"I could take on e4 but then the knight hangs, so I take on d4 first."* To support
+calculation, the board here is a **scratch board**: the user can try candidate lines on it
+and paste the resulting notation into their notes with one click, so they only have to add
+the *why* — they motivate the line rather than transcribe it. Scratch moves are throwaway
+and never count as a solve attempt. The **reasoning coach** (BYOK LLM, §8.3) compares this
+prose against Stockfish's lines — never calculating itself — and reports: what you got
+right, what you missed (*"after Bxe4, Re8 pins the rook"*), what's wrong. Without an API
+key, the phase still runs: the user self-checks against the revealed engine line (graceful
+degradation).
 
 **Phase 3 — Solve (execute the committed line).**
 The user plays their moves out; the opponent's forced replies animate. Anti-guessing rules:
@@ -293,10 +299,12 @@ The user plays their moves out; the opponent's forced replies animate. Anti-gues
 
 - **Source**: Lichess puzzle database (CC0, ~6M rows, CSV) — motif-tagged, rating-graded.
 - **Pipeline**: `scripts/build-problems.mjs` (dev-only Node) downloads the `.csv.zst`,
-  filters (2–3 movers via `short`/`long` tags, rating ~1200–1900, popularity + NbPlays
-  thresholds, clean motifs like fork/pin/skewer/discoveredAttack/backRankMate/hangingPiece),
-  samples a balanced ~6k set across theme × rating band, and writes per-theme JSON plus a
-  `manifest.json` to `public/problems/`. Output is committed; the raw CSV never is.
+  filters (2–4 movers via `short`/`long`/`veryLong` tags, rating ~1400–2500, popularity +
+  NbPlays thresholds, a broad curated motif set — fork/pin/skewer/discoveredAttack/
+  doubleCheck/backRankMate/hangingPiece/trappedPiece/deflection/attraction/sacrifice/
+  intermezzo/advancedPawn plus the defensive `defensiveMove`), samples a balanced set
+  across theme × rating band, and writes per-theme JSON plus a `manifest.json` to
+  `public/problems/`. Output is committed; the raw CSV never is.
 - **Delivery**: fetched on demand per theme (like `public/engine/`), keeping the JS bundle
   small. Each theme file is ~50–150 KB gzipped. The per-theme split is storage/delivery
   only — problems are served unlabeled (§8.1); the motif surfaces only in the post-solve

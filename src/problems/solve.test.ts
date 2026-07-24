@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { Chess } from 'chess.js'
 import type { EngineAnalysis, EngineLine } from '../types'
-import { engineLineSummaries, isSolutionMove, sanLineFromUci, uciToSan } from './solve'
+import {
+  engineLineSummaries,
+  formatSanLine,
+  isSolutionMove,
+  sanLineFromUci,
+  uciToSan,
+} from './solve'
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -82,6 +88,35 @@ describe('sanLineFromUci', () => {
 
   it('returns [] for a malformed FEN', () => {
     expect(sanLineFromUci('not a fen', ['e2e4'])).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// formatSanLine — numbered notation for the reason-phase scratchpad
+// ---------------------------------------------------------------------------
+
+describe('formatSanLine', () => {
+  it('numbers a White-to-move line from the start', () => {
+    expect(formatSanLine(START_FEN, ['e4', 'e5', 'Nf3', 'Nc6'])).toBe('1.e4 e5 2.Nf3 Nc6')
+  })
+
+  it('uses the ellipsis when Black opens the line, keeping the fullmove number', () => {
+    // Black to move at fullmove 23.
+    const fen = legalFen('r4rk1/pppq1ppp/2n5/3pp3/3PP3/2N2N2/PPP2PPP/R2QR1K1 b - - 0 23')
+    expect(formatSanLine(fen, ['exd4', 'Nxd4', 'Nxd4'])).toBe('23...exd4 24.Nxd4 Nxd4')
+  })
+
+  it('advances the fullmove number across several full moves (White opens)', () => {
+    const fen = legalFen('r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3')
+    expect(formatSanLine(fen, ['Bc4', 'Bc5', 'c3', 'Nf6'])).toBe('3.Bc4 Bc5 4.c3 Nf6')
+  })
+
+  it('returns an empty string for an empty line', () => {
+    expect(formatSanLine(START_FEN, [])).toBe('')
+  })
+
+  it('falls back to fullmove 1 when the FEN header is malformed', () => {
+    expect(formatSanLine('not a fen', ['e4', 'e5'])).toBe('1.e4 e5')
   })
 })
 

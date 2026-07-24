@@ -46,14 +46,14 @@ The single correct move in the position where the user blundered — authored fo
 One training run of one opening from the start position until a blunder stop, the middlegame move cap (~move 25), or restart.
 
 **Problem**:
-A bundled tactics position (curated from the Lichess CC0 puzzle database) solved in three gated phases: read → reason → solve. Always a 2–3 move line, never a one-mover. Served unlabeled — no motif or theme is shown before or during the attempt; the motif is revealed only after the solve.
+A bundled tactics position (curated from the Lichess CC0 puzzle database) solved in three gated phases: read → reason → solve. Always a 2–4 move line, never a one-mover. Curated across a wide difficulty spread (~1400–2500) and a mix of motifs — including defensive/holding positions, so the read check isn't always "you're winning". Served unlabeled — no motif or theme is shown before or during the attempt; the motif is revealed only after the solve.
 _Avoid_: puzzle (in prose; the upstream dataset keeps its own naming), exercise
 
 **Read check**:
 The machine-checked situational-awareness gate before reasoning: material count (verified against the FEN) and a verdict guess (compared against the engine's eval bucket).
 
 **Reasoning**:
-The user's free-text explanation of the winning idea and calculated line, written before any move is played.
+The user's free-text explanation of the winning idea and calculated line, written before any move is played. During this phase the board is a **scratch board**: the user can try candidate lines on it and paste the resulting notation into their notes, so they motivate the line rather than transcribe it. Scratch moves are throwaway — they never count as a solve attempt.
 
 **Reasoning coach**:
 The BYOK AI layer that compares the user's reasoning against Stockfish's analysis and reports what was right, missed, or wrong. It never calculates chess — engine output is ground truth.
