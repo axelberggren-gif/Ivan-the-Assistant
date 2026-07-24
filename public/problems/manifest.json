@@ -1,53 +1,109 @@
 {
   "source": "lichess_db_puzzle",
   "sourceDate": "2026-07-01",
-  "generatedAt": "2026-07-22T12:21:40.368Z",
+  "generatedAt": "2026-07-24T16:02:20.790Z",
   "license": "CC0-1.0",
-  "ratingMin": 1200,
-  "ratingMax": 1900,
-  "total": 5994,
+  "ratingMin": 1400,
+  "ratingMax": 2500,
+  "total": 8315,
   "themes": [
     {
       "id": "fork",
       "name": "Fork",
       "description": "One piece attacks two targets at once — something has to give.",
       "file": "fork.json",
-      "count": 999
+      "count": 600
     },
     {
       "id": "pin",
       "name": "Pin",
       "description": "A piece can't move without exposing something more valuable behind it.",
       "file": "pin.json",
-      "count": 999
+      "count": 600
     },
     {
       "id": "skewer",
       "name": "Skewer",
       "description": "Attack the big piece first — when it steps aside, win what was hiding behind it.",
       "file": "skewer.json",
-      "count": 999
+      "count": 600
     },
     {
       "id": "discoveredAttack",
       "name": "Discovered Attack",
       "description": "Move one piece and unmask another's attack — two threats from a single move.",
       "file": "discoveredAttack.json",
-      "count": 999
+      "count": 600
+    },
+    {
+      "id": "doubleCheck",
+      "name": "Double Check",
+      "description": "Two pieces check at once — the king must move, nothing else parries it.",
+      "file": "doubleCheck.json",
+      "count": 600
     },
     {
       "id": "backRankMate",
       "name": "Back-Rank Mate",
       "description": "The king is boxed in behind its own pawns — crash through on the last rank.",
       "file": "backRankMate.json",
-      "count": 999
+      "count": 515
     },
     {
       "id": "hangingPiece",
       "name": "Hanging Piece",
       "description": "An undefended piece is up for grabs — spot it before your opponent saves it.",
       "file": "hangingPiece.json",
-      "count": 999
+      "count": 600
+    },
+    {
+      "id": "trappedPiece",
+      "name": "Trapped Piece",
+      "description": "A piece has run out of safe squares — hem it in and win it.",
+      "file": "trappedPiece.json",
+      "count": 600
+    },
+    {
+      "id": "deflection",
+      "name": "Deflection",
+      "description": "Drag a defender off its post, then strike where it used to guard.",
+      "file": "deflection.json",
+      "count": 600
+    },
+    {
+      "id": "attraction",
+      "name": "Attraction",
+      "description": "Lure a piece — often the king — onto a square where it walks into a tactic.",
+      "file": "attraction.json",
+      "count": 600
+    },
+    {
+      "id": "sacrifice",
+      "name": "Sacrifice",
+      "description": "Give up material now to force a bigger gain, or mate, right after.",
+      "file": "sacrifice.json",
+      "count": 600
+    },
+    {
+      "id": "intermezzo",
+      "name": "In-Between Move",
+      "description": "Slip in a forcing move before the 'obvious' recapture — the zwischenzug.",
+      "file": "intermezzo.json",
+      "count": 600
+    },
+    {
+      "id": "advancedPawn",
+      "name": "Advanced Pawn",
+      "description": "A pawn near promotion does the work — push it, or use its threat.",
+      "file": "advancedPawn.json",
+      "count": 600
+    },
+    {
+      "id": "defensiveMove",
+      "name": "Defensive Resource",
+      "description": "You're under fire — find the only move that holds the position together.",
+      "file": "defensiveMove.json",
+      "count": 600
     }
   ]
 }

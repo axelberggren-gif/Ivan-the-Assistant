@@ -1594,6 +1594,59 @@ button {
   color: var(--text-faint);
 }
 
+/* reason-phase scratch board (try a line, paste the notation) */
+
+.explore-box {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.explore-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.explore-title {
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+
+.explore-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.explore-line {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-word;
+  margin-bottom: 12px;
+}
+
+.explore-empty {
+  font-size: 13px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.explore-commit {
+  width: 100%;
+  justify-content: center;
+}
+
 /* solve panel */
 
 .solve-panel .status-line {

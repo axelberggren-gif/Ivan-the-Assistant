@@ -9,7 +9,11 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 'claude/phase-3-problems-mode-**'
+      # Any working branch that changes the build script rebuilds the data
+      # (the job self-commits public/problems/** back to the same branch).
+      - 'claude/**'
+      - 'feat/**'
+      - 'chore/**'
     paths:
       - 'scripts/build-problems.mjs'
 

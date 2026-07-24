@@ -46,8 +46,13 @@ if (!existsSync(manifestUrl)) {
       expect(manifest.sourceDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
       expect(Number.isNaN(Date.parse(manifest.generatedAt))).toBe(false)
       expect(manifest.license).toBe('CC0-1.0')
-      expect(manifest.ratingMin).toBe(1200)
-      expect(manifest.ratingMax).toBe(1900)
+      // The rating spread is a build-script tunable (widened over time), so
+      // the contract test asserts a sane, ordered range rather than pinning
+      // exact bounds — the per-problem checks below enforce membership.
+      expect(typeof manifest.ratingMin).toBe('number')
+      expect(typeof manifest.ratingMax).toBe('number')
+      expect(manifest.ratingMin).toBeGreaterThanOrEqual(1000)
+      expect(manifest.ratingMax).toBeGreaterThan(manifest.ratingMin)
       expect(typeof manifest.total).toBe('number')
       expect(Array.isArray(manifest.themes)).toBe(true)
       expect(manifest.themes.length).toBeGreaterThan(0)
@@ -101,10 +106,10 @@ if (!existsSync(manifestUrl)) {
 
           expect(problem.themes).toContain(theme.id)
 
-          // 2 or 3 user moves plus the opponent's setup move (moves[0]).
+          // 2–4 user moves plus the opponent's setup move (moves[0]).
           expect(
-            [4, 6],
-            `problem ${problem.id} has ${problem.moves.length} moves (want 4 or 6)`,
+            [4, 6, 8],
+            `problem ${problem.id} has ${problem.moves.length} moves (want 4, 6, or 8)`,
           ).toContain(problem.moves.length)
 
           // FEN parses, every UCI move legal in sequence.

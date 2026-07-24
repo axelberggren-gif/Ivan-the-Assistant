@@ -28,6 +28,7 @@ import {
   curatedMotifNames,
   engineLineSummaries,
   fixReminder,
+  formatSanLine,
   isSolutionMove,
   sanLineFromUci,
   solvedMessage,
@@ -57,6 +58,12 @@ export interface ProblemsState {
   readReport: ReadCheckReport | null
   /** The user's typed reasoning (CONTEXT.md: "Reasoning"). */
   reasoning: string
+  /**
+   * SAN of the line the user is trying out on the scratch board during the
+   * reason phase. Purely exploratory — never counts as a solve attempt; the
+   * user commits it into `reasoning` with `commitExploreToReasoning`.
+   */
+  exploreSan: string[]
   /** Engine ground truth revealed in the reason phase. */
   engineLines: EngineLineSummary[]
   /** Reasoning-coach feedback (BYOK); null without a key or before grading. */
@@ -99,6 +106,18 @@ export interface ProblemsState {
   submitReadCheck: (answer: ReadCheckAnswer) => void
   setReasoning: (text: string) => void
   submitReasoning: () => void
+  /**
+   * Reason-phase scratch board: play any legal move on a throwaway line from
+   * the solve position. Returns false for illegal/out-of-phase moves (board
+   * snaps back). Does NOT touch the real game — nothing here is a solve attempt.
+   */
+  exploreMove: (from: string, to: string, promotion?: string) => boolean
+  /** Take back the last scratch move. */
+  undoExplore: () => void
+  /** Clear the scratch line back to the solve position. */
+  resetExplore: () => void
+  /** Paste the scratch line (as numbered SAN) into `reasoning`, then clear it. */
+  commitExploreToReasoning: () => void
   /** Returns false for illegal/out-of-turn/fix-bounced moves (board snaps back). */
   userMove: (from: string, to: string, promotion?: string) => boolean
   retryFromStop: () => void
@@ -159,6 +178,13 @@ function pickWeightedThemeId(manifest: ProblemManifest): string | null {
 export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
   /** Single source of truth for the live board position. */
   const chess = new Chess()
+
+  /**
+   * Throwaway board for the reason-phase scratchpad. Always sits at the solve
+   * position plus whatever exploratory moves are in `exploreSan`; the real
+   * `chess` above is never mutated by exploration.
+   */
+  const scratch = new Chess()
 
   /** engine.init() guard — runs at most once (retried if it failed). */
   let initPromise: Promise<void> | null = null
@@ -255,6 +281,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         evalCp: 0,
         readReport: null,
         reasoning: '',
+        exploreSan: [],
         engineLines: [],
         feedback: null,
         gradeError: null,
@@ -432,6 +459,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       evalCp: 0,
       readReport: null,
       reasoning: '',
+      exploreSan: [],
       engineLines: [],
       feedback: null,
       gradeError: null,
@@ -474,11 +502,14 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           try {
             const analysis = await analyzeCached(solveFen)
             if (epoch !== myEpoch) return
+            // Arm the scratch board at the solve position for the reason phase.
+            scratch.load(solveFen)
             set({
               status: 'reason',
               readReport: checkRead(answer, solveFen, analysis, get().userColor),
               evalCp: analysisCpWhite(analysis),
               engineLines: engineLineSummaries(analysis, get().userColor),
+              exploreSan: [],
             })
           } catch (e) {
             if (epoch !== myEpoch) return
@@ -497,13 +528,17 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         if (st.status !== 'reason' || !st.problem || !st.solveFen) return
         const myEpoch = epoch
         const llmAvailable = deps.llm.hasKey()
+        // Discard any scratch exploration and put the board back at the solve
+        // position — the real game (`chess`) was never moved, so this just
+        // realigns the display before the solve phase takes over.
+        scratch.load(st.solveFen)
         // Empty reasoning is allowed (the user self-checks against the engine
         // lines); there is nothing to grade, so skip the LLM either way.
         if (!llmAvailable || !st.reasoning.trim()) {
-          set({ status: 'solve', solveStep: 1, llmAvailable })
+          set({ status: 'solve', solveStep: 1, llmAvailable, fen: st.solveFen, exploreSan: [] })
           return
         }
-        set({ status: 'grading', llmAvailable })
+        set({ status: 'grading', llmAvailable, fen: st.solveFen, exploreSan: [] })
         const { problem, solveFen, reasoning, engineLines } = st
         void (async () => {
           try {
@@ -526,6 +561,48 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
             })
           }
         })()
+      },
+
+      exploreMove: (from: string, to: string, promotion?: string): boolean => {
+        const st = get()
+        if (st.status !== 'reason' || !st.solveFen) return false
+        let mv
+        try {
+          // Any legal move for whichever side is to move — the user plays the
+          // whole line out (their move, the reply, the follow-up, …).
+          mv = scratch.move({ from, to, promotion: promotion ?? 'q' })
+        } catch {
+          return false // illegal — board snaps back
+        }
+        set({ exploreSan: [...st.exploreSan, mv.san], fen: scratch.fen() })
+        return true
+      },
+
+      undoExplore: () => {
+        const st = get()
+        if (st.status !== 'reason' || st.exploreSan.length === 0) return
+        scratch.undo()
+        set({ exploreSan: st.exploreSan.slice(0, -1), fen: scratch.fen() })
+      },
+
+      resetExplore: () => {
+        const st = get()
+        if (st.status !== 'reason' || !st.solveFen) return
+        scratch.load(st.solveFen)
+        set({ exploreSan: [], fen: st.solveFen })
+      },
+
+      commitExploreToReasoning: () => {
+        const st = get()
+        if (st.status !== 'reason' || !st.solveFen || st.exploreSan.length === 0) return
+        const line = formatSanLine(st.solveFen, st.exploreSan)
+        const current = st.reasoning
+        // Paste the notation, then leave a trailing space so the user can go
+        // straight to the "why" — they motivate the line, not transcribe it.
+        const separator = current.trim().length === 0 ? '' : current.endsWith('\n') ? '' : '\n'
+        const reasoning = `${current}${separator}${line} `
+        scratch.load(st.solveFen)
+        set({ reasoning, exploreSan: [], fen: st.solveFen })
       },
 
       userMove: (from: string, to: string, promotion?: string): boolean => {
@@ -667,6 +744,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         epoch++
         clearTimers()
         chess.reset()
+        scratch.reset()
         playedUci = []
         preStopUci = []
         preStopSan = []
@@ -681,6 +759,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           evalCp: 0,
           readReport: null,
           reasoning: '',
+          exploreSan: [],
           engineLines: [],
           feedback: null,
           gradeError: null,

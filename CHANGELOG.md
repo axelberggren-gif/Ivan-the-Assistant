@@ -5,6 +5,16 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- feat(problems): harder, more varied problem set + reason-phase scratch board.
+  The build pipeline now curates a wide difficulty spread (~1400–2500, balanced across
+  four bands), a broad motif mix (adds doubleCheck, trappedPiece, deflection, attraction,
+  sacrifice, intermezzo, advancedPawn, and the defensive `defensiveMove` so the read-check
+  verdict isn't always "you're winning"), and 4-move (`veryLong`) lines alongside 2–3
+  movers. In the reason phase the board is now a scratchpad: try candidate lines, take
+  back/clear, and paste the numbered notation into your notes with one click — you motivate
+  the line instead of transcribing it. The `refresh-problems` workflow regenerates the
+  bundled data from the Lichess dump; `data.test.ts` no longer pins the exact rating band
+  so it stays green across regenerations
 - feat(pwa): make Ivan an installable, offline-capable PWA — web manifest + Workbox
   service worker via vite-plugin-pwa (autoUpdate), knight-on-meadow icons (192/512/
   maskable/apple-touch/favicon), light-precache app shell with runtime caching for the

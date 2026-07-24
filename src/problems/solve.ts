@@ -34,6 +34,40 @@ function normalizeUci(uci: string): string {
   return from + to + (promotion ?? '')
 }
 
+/**
+ * Format a SAN line as numbered chess notation, starting from `fen` so the
+ * move numbers and the leading side-to-move are correct — e.g. from a Black-to-
+ * move position at move 23, ['Nxe5','Nxe5','Qxe5'] → "23...Nxe5 24.Nxe5 Qxe5".
+ *
+ * Pure string work over the FEN header (side to move + fullmove number); the
+ * SAN tokens are taken as-is (the caller produced them from chess.js, so they
+ * are already legal and canonical). Used to paste a tried line into the user's
+ * reasoning notes so they only have to add the "why".
+ */
+export function formatSanLine(fen: string, sanMoves: string[]): string {
+  if (sanMoves.length === 0) return ''
+  const fields = fen.split(' ')
+  let whiteToMove = fields[1] !== 'b'
+  let fullmove = Number.parseInt(fields[5] ?? '1', 10)
+  if (!Number.isFinite(fullmove) || fullmove < 1) fullmove = 1
+
+  const out: string[] = []
+  let first = true
+  for (const san of sanMoves) {
+    if (whiteToMove) {
+      out.push(`${fullmove}.${san}`)
+    } else {
+      // A Black move that opens the line needs the "23..." ellipsis; a Black
+      // move following White's just trails it.
+      out.push(first ? `${fullmove}...${san}` : san)
+      fullmove++
+    }
+    whiteToMove = !whiteToMove
+    first = false
+  }
+  return out.join(' ')
+}
+
 /** Apply a UCI move in `fen` and return its SAN; null if illegal (or bad FEN). */
 export function uciToSan(fen: string, uci: string): string | null {
   try {

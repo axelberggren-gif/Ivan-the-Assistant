@@ -1,10 +1,16 @@
 import { useProblems } from '../store/problemsContext'
+import { exploreHint, formatSanLine } from '../problems'
 
 /**
  * Phase 2 — Reasoning (PLAN §8.1, the heart of the exercise): show the read
- * check reveal, then have the user write their idea and calculation in plain
- * language before any move is played. Submit hands the prose to the reasoning
- * coach (BYOK) or, keyless, moves on to the engine-line self-check.
+ * check reveal, let the user try candidate lines on the scratch board, then
+ * write their idea before any real move is played. Submit hands the prose to
+ * the reasoning coach (BYOK) or, keyless, moves on to the engine-line
+ * self-check.
+ *
+ * The scratch board (ProblemBoard, reason phase) is a throwaway line the user
+ * can commit into their notes as notation — so they only have to add the
+ * "why", not transcribe every move.
  */
 export default function ReasonPanel() {
   const status = useProblems((s) => s.status)
@@ -13,8 +19,15 @@ export default function ReasonPanel() {
   const setReasoning = useProblems((s) => s.setReasoning)
   const submitReasoning = useProblems((s) => s.submitReasoning)
   const llmAvailable = useProblems((s) => s.llmAvailable)
+  const exploreSan = useProblems((s) => s.exploreSan)
+  const solveFen = useProblems((s) => s.solveFen)
+  const undoExplore = useProblems((s) => s.undoExplore)
+  const resetExplore = useProblems((s) => s.resetExplore)
+  const commitExploreToReasoning = useProblems((s) => s.commitExploreToReasoning)
 
   const grading = status === 'grading'
+  const hasLine = exploreSan.length > 0
+  const scratchLine = solveFen ? formatSanLine(solveFen, exploreSan) : exploreSan.join(' ')
 
   return (
     <div className="panel reason-panel">
@@ -34,8 +47,47 @@ export default function ReasonPanel() {
         </div>
       )}
 
+      <div className="explore-box">
+        <div className="explore-header">
+          <span className="explore-title">Scratch line</span>
+          <div className="explore-actions">
+            <button
+              type="button"
+              className="btn btn-ghost btn-small"
+              onClick={undoExplore}
+              disabled={!hasLine || grading}
+            >
+              Take back
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-small"
+              onClick={resetExplore}
+              disabled={!hasLine || grading}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+        {hasLine ? (
+          <div className="explore-line" aria-live="polite">
+            {scratchLine}
+          </div>
+        ) : (
+          <p className="explore-empty">{exploreHint()}</p>
+        )}
+        <button
+          type="button"
+          className="btn explore-commit"
+          onClick={commitExploreToReasoning}
+          disabled={!hasLine || grading}
+        >
+          ↵ Add line to my notes
+        </button>
+      </div>
+
       <label className="reason-label" htmlFor="reasoning-input">
-        Before you move: what&rsquo;s the idea? Write your line.
+        Now motivate it: why does the line work?
       </label>
       <textarea
         id="reasoning-input"

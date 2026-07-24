@@ -30,6 +30,11 @@ problems store/UI. Phases per PLAN.md §8: read → reason → solve.
 
 ## Recent changes
 
+- Harder + more varied set: build pipeline now spans ~1400–2500 across four bands, a broad
+  motif mix (adds doubleCheck/trappedPiece/deflection/attraction/sacrifice/intermezzo/
+  advancedPawn + the defensive `defensiveMove`), and 4-move (`veryLong`) lines. `solve.ts`
+  gains `formatSanLine` (pure): numbered SAN from a FEN, used to paste a tried line into the
+  reasoning notes. `templates.ts` gains `exploreHint`. Problems are still served unlabeled.
 - No motif hints (owner decision, 2026-07-22): `solvedMessage` + `curatedMotifNames` reveal
   the motif only after the solve; theme files are storage only, problems serve unlabeled.
 - Initial problems-mode logic: loader, read check, solve matching, templates (Milestone 6b).
