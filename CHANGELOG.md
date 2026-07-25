@@ -5,6 +5,19 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- docs(plan): spec deep analysis (PLAN.md §5.2, ADR-0005) — the unbuilt half of Milestone 5
+  and the blocker on 6d's motif half. A background queue annotates your real chess.com games
+  with Stockfish on its **own** engine instance (a scoped exception to App.tsx's shared-engine
+  rule, so a 5-minute batch never parks an interactive move), reusing the coach's thresholds
+  via new exported `classifyMove` / `deriveReasonCodes` rather than duplicating them. Bounded
+  and resumable: 150ms/position, ply cap 60, decided-position cutoff, per-game IndexedDB cache,
+  cancellable, results committed game by game. The run lives at `App` level so it continues
+  while you train, reporting "Game 7 of 25 · ~3 min left" from any screen. Lands as a new
+  `src/analysis/` module (Phase 5's post-game review reuses the same primitive) across four
+  PRs, 5.2a–5.2d. Owner decisions on 2026-07-25: background-with-progress accepted; motif
+  detection dropped, so **6d is opening-only and no longer blocked**; the second engine
+  instance (measured at +128 MB while running, freed on dispose) is still open. Docs only;
+  no code yet.
 - fix(problems): stop one bad problem file from killing problems mode. Reported as
   `Problem file "backRankMate.json" contains a malformed problem` across several files —
   the bundled data is in fact valid (all 8315 problems pass the loader and the chess.js
