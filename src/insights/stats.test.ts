@@ -39,6 +39,15 @@ function rawGame(overrides: Partial<ChesscomGame> = {}): ChesscomGame {
 }
 
 describe('normalizeGames', () => {
+  it('carries the raw PGN through for deep analysis, and omits it when absent', () => {
+    const [withPgn, withoutPgn] = normalizeGames(
+      [rawGame(), rawGame({ pgn: undefined })],
+      USER,
+    )
+    expect(withPgn.pgn).toBe(CARO_PGN)
+    expect('pgn' in withoutPgn).toBe(false)
+  })
+
   it('keeps only rules === "chess" and games the user played', () => {
     const games = normalizeGames(
       [

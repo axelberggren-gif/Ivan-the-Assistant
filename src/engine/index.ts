@@ -26,7 +26,23 @@ const FULL_STRENGTH_SKILL = 20
 
 type LineListener = (line: string) => void
 
-export function createEngine(): EngineAPI {
+export interface CreateEngineOptions {
+  /**
+   * Transposition-table size in MB, pinned right after init. Deep analysis
+   * (src/analysis) passes a small value: at 150ms per search a large table
+   * buys nothing and only invites the WASM allocation to grow (ADR-0005).
+   * Omitted ⇒ the build's own default.
+   */
+  hashMb?: number
+}
+
+/**
+ * A second instance is a deliberate, scoped exception to App.tsx's "share one
+ * engine" convention, reserved for the deep-analysis batch queue (ADR-0005
+ * decision 1): each instance commits ~128 MB of WASM linear memory, freed on
+ * dispose(). Interactive callers share the one engine.
+ */
+export function createEngine(opts: CreateEngineOptions = {}): EngineAPI {
   let worker: Worker | null = null
   let initPromise: Promise<void> | null = null
   let disposed = false
@@ -76,6 +92,9 @@ export function createEngine(): EngineAPI {
       const uciok = waitForLine((l) => l === 'uciok' || l.startsWith('uciok'))
       send('uci')
       await uciok
+      if (opts.hashMb !== undefined) {
+        send(`setoption name Hash value ${Math.max(1, Math.round(opts.hashMb))}`)
+      }
       const readyok = waitForLine((l) => l === 'readyok' || l.startsWith('readyok'))
       send('isready')
       await readyok

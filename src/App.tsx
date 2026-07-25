@@ -7,13 +7,17 @@ import { openings } from './data'
 import { createSessionStore } from './store/session'
 import { SessionStoreContext, useSession } from './store/context'
 import { createChesscomClient } from './insights/chesscom'
+import { createIndexedDbStore } from './insights/cache'
 import { createInsightsStore, type InsightsStore } from './store/insights'
 import { InsightsStoreContext } from './store/insightsContext'
+import { createAnalysisStore, type AnalysisStore } from './store/analysis'
+import { AnalysisStoreContext } from './store/analysisContext'
 import { createProblemSource } from './problems'
 import { createLlm } from './llm'
 import { createProblemsStore, type ProblemsStore } from './store/problems'
 import { ProblemsStoreContext } from './store/problemsContext'
 import { loadActivity, persistActivity, withSolved, type ActivityState } from './store/activity'
+import AnalysisProgressChip from './components/AnalysisProgressChip'
 import OpeningPicker from './components/OpeningPicker'
 import TrainerScreen from './components/TrainerScreen'
 import InsightsScreen from './components/InsightsScreen'
@@ -64,6 +68,33 @@ function buildInsightsStore(): InsightsStore | null {
   }
 }
 
+/**
+ * Transposition table for the batch engine. At 150ms per search a big table
+ * buys nothing and only invites the WASM allocation to grow (ADR-0005).
+ */
+const BATCH_ENGINE_HASH_MB = 16
+
+/**
+ * Deep analysis (PLAN.md §5.2). Created at App level so a run survives
+ * navigation — the user can train or solve problems while their games are
+ * analysed. It is the ONE deliberate exception to sharing a single engine
+ * (ADR-0005 decision 1): the batch instance is created lazily when the user
+ * clicks "Analyse my games" and disposed the moment the run ends, so it never
+ * parks an interactive move behind a five-minute queue. It must never
+ * auto-start.
+ */
+function buildAnalysisStore(): AnalysisStore | null {
+  try {
+    return createAnalysisStore({
+      createEngine: () => createEngine({ hashMb: BATCH_ENGINE_HASH_MB }),
+      // Same IndexedDB database the insights month cache uses.
+      cache: createIndexedDbStore(),
+    })
+  } catch {
+    return null
+  }
+}
+
 interface ProblemsParts {
   store: ProblemsStore
   llm: LlmAPI
@@ -95,6 +126,7 @@ export default function App() {
   // Instantiate deps and the stores exactly once for the app's lifetime.
   const [{ deps, error }] = useState(buildDeps)
   const [insightsStore] = useState(buildInsightsStore)
+  const [analysisStore] = useState(buildAnalysisStore)
   const store = useMemo(() => (deps ? createSessionStore(deps) : null), [deps])
   const problems = useMemo(() => buildProblems(deps), [deps])
 
@@ -140,6 +172,9 @@ export default function App() {
   if (import.meta.env.DEV && problems) {
     ;(window as unknown as { __problems?: unknown }).__problems = problems.store
   }
+  if (import.meta.env.DEV && analysisStore) {
+    ;(window as unknown as { __analysis?: unknown }).__analysis = analysisStore
+  }
 
   if (!deps || !store) {
     return (
@@ -182,6 +217,11 @@ export default function App() {
   )
 
   let tree = shell
+  if (analysisStore) {
+    tree = (
+      <AnalysisStoreContext.Provider value={analysisStore}>{tree}</AnalysisStoreContext.Provider>
+    )
+  }
   if (insightsStore) {
     tree = (
       <InsightsStoreContext.Provider value={insightsStore}>{tree}</InsightsStoreContext.Provider>
@@ -231,6 +271,11 @@ function Header({
 
       {view && onSelectView && (
         <div className="app-header-right">
+          {/* Deep analysis runs at App level, so its progress follows the user
+              across screens; on Insights the full bar is already on screen. */}
+          {view !== 'insights' && (
+            <AnalysisProgressChip onOpen={() => onSelectView('insights')} />
+          )}
           {typeof streak === 'number' && streak > 0 && (
             <span className="streak-badge" title={`${streak}-day streak`}>
               🔥 {streak}

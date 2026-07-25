@@ -10,6 +10,7 @@ import type {
   ChesscomClient,
   ChesscomStats,
   FetchProgress,
+  InsightsGame,
   InsightsReport,
   TrainRecommendation,
 } from '../insights/types'
@@ -29,6 +30,11 @@ export interface InsightsState {
   status: InsightsStatus
   progress: FetchProgress | null
   report: InsightsReport | null
+  /**
+   * The normalized games the report was computed from, kept so deep analysis
+   * (src/analysis) can select from the same list instead of re-fetching.
+   */
+  games: InsightsGame[]
   stats: ChesscomStats | null
   recommendations: TrainRecommendation[]
   error: string | null
@@ -88,6 +94,7 @@ export function createInsightsStore(client: ChesscomClient): InsightsStore {
     status: 'idle',
     progress: null,
     report: null,
+    games: [],
     stats: null,
     recommendations: [],
     error: null,
@@ -118,6 +125,7 @@ export function createInsightsStore(client: ChesscomClient): InsightsStore {
             status: 'ready',
             progress: null,
             report,
+            games,
             stats: result.stats,
             recommendations,
             error: null,

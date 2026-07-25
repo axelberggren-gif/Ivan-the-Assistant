@@ -15,8 +15,13 @@
   invalidate the cache wholesale.
 - Failures surface as `InsightsError` with a user-readable message — the insights screen
   must degrade gracefully offline (cache-only).
-- `stats.ts`/`recommend.ts` stay pure (no fetch, no IndexedDB) so they're unit-testable.
+- `stats.ts`/`recommend.ts` stay pure (no fetch, no IndexedDB) so they're unit-testable. The
+  engine-driven half of Milestone 5 lives in `src/analysis` for exactly this reason — never
+  add an engine or a batch loop here.
 
 ## Recent changes
 
+- `InsightsGame` gains an optional `pgn` (ADR-0005 decision 5) and the insights store keeps
+  the normalized `games`, so deep analysis works from the same list the dashboard does
+  instead of a second parallel one.
 - Initial insights: stats dashboard + train-what-you-lose recommendations (Milestone 5).

@@ -1,9 +1,9 @@
 # 0005 — Deep analysis: a background engine queue over your real games
 
-- **Status:** Proposed — awaiting the owner's decision on the three questions in
-  "Open questions" below. Written as the spec for PLAN.md §5.2 (Milestone 5's
-  unbuilt half).
-- **Date:** 2026-07-25
+- **Status:** Accepted — built as PLAN.md §5.2a–5.2d. See "Owner decisions" below; the
+  second WASM instance (decision 1) is accepted, since decision 2 (background runs) requires
+  it.
+- **Date:** 2026-07-25 (proposed), 2026-07-25 (accepted and built)
 
 ## Context
 
@@ -187,11 +187,12 @@ the dashboard already has, instead of a second parallel list of raw games.
 
 ## Owner decisions (2026-07-25)
 
-1. **Second WASM instance — open.** Measured cost is +128 MB resident for the duration of a
-   run (see decision 1), freed on dispose. Awaiting the owner's call, but note that decision
-   2 below effectively settles it: analysis running in the background while the user trains
-   requires two engines. Reusing the single engine is only viable if analysis is allowed to
-   block the rest of the app.
+1. **Second WASM instance — accepted.** Measured cost is +128 MB resident for the duration of
+   a run (see decision 1), freed on dispose. Decision 2 settles it: analysis running in the
+   background while the user trains requires two engines, and reusing the single engine is
+   only viable if analysis is allowed to block the rest of the app. Guards as specced —
+   exactly one batch instance, never auto-started, `Hash` pinned to 16 MB, disposed the
+   moment the run ends or is cancelled (and never created at all for a fully-cached run).
 2. **Background + progress — accepted.** 25 games stands as the default, with the run
    surviving navigation and reporting `gamesDone / gamesTotal` plus an ETA from any screen
    (decision 4b).
@@ -227,3 +228,26 @@ the dashboard already has, instead of a second parallel list of raw games.
 - **New seams to document when the code lands**: `src/analysis/CLAUDE.md` and its entry in
   the AGENTS.md per-directory map; a note in `src/engine/CLAUDE.md` that a second instance is
   reserved for batch analysis; the extracted exports in `src/coach/CLAUDE.md`.
+
+## As built (2026-07-25)
+
+Landed as specced, with these details worth recording:
+
+- **`GamePhase` has two members, not three.** The ply cap stops at full move 30, so an
+  `endgame` bucket would never be populated; the phase boundary is `OPENING_LAST_FULL_MOVE =
+  12` in `aggregate.ts`. PLAN.md §5.2's "opening / middlegame / endgame" was corrected to
+  match — endgame analysis remains out of scope for this milestone.
+- **`selectGamesForAnalysis` lives in `pgn.ts`**, not a seventh file: it is pure and it
+  filters on parsed ply count, so it belongs with the parser. It also skips `daily` games —
+  correspondence play is not how the user actually plays.
+- **`budgetSignature` excludes `maxGames` and `verifyTopN`.** Those change how many games are
+  analysed, not what an annotation of one game says, so changing them must not throw away the
+  cache. `ANALYSIS_VERSION` covers shape changes.
+- **`verifyMove` re-searches both sides of the move.** cpLoss is a difference, so
+  re-evaluating only the position after the move would compare a deep eval against a shallow
+  one. It takes the game's move history so the history-based reason codes survive the
+  re-check; without it, the shallow codes are kept rather than silently narrowed.
+- **An aborted game keeps its partial verdicts but is never cached**, so a cancel still shows
+  what it managed to judge and a later run redoes that game properly.
+- **`createEngine` grew an optional `{ hashMb }`** — additive, inside `src/engine`, so
+  `EngineAPI` in `src/types.ts` was left alone as promised.

@@ -63,3 +63,19 @@ The opponent's move auto-played from a problem's start position; the user solves
 
 **BYOK**:
 Bring-your-own-key — the user's own Anthropic API key, stored only in the browser and sent only to the provider. Without a key the app still works with engine-only feedback (ADR-0003).
+
+**Deep analysis**:
+The opt-in background pass that runs your real chess.com games through the same Stockfish and the same coach the trainer uses, and turns the result into a weakness report. Covers the first 30 moves of each game (opening and early middlegame — the endgame is out of scope), skips already-decided positions, caches every game forever, and is cancellable at any point without losing what it has already done.
+_Avoid_: "review", "scan" (in prose)
+
+**Weakness report**:
+What deep analysis produces: a blunder timeline, cost per phase, an opening-phase diagnosis, recurring mistakes, and your worst moments. It is measured, not asserted — "you drift at move 9" comes from your own games.
+
+**Blunder timeline**:
+Mistakes and blunders counted by move number across the analysed games — where in a game it actually goes wrong for you.
+
+**Recurring mistake**:
+A reason code that keeps showing up across games, with its count and how many separate games it appeared in. Clustered by the coach's own reason codes, not by tactical motif.
+
+**Worst moment**:
+One of your most expensive single moves across the analysed games — the move, what it cost, the move that was better, and a link back to the game. The ~10 worst are re-run at full engine depth before being shown, so a headline finding is never an artefact of a fast search.

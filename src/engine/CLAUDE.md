@@ -17,8 +17,15 @@ Two layers, keep them separate:
   engine data, extend `EngineAPI` in `src/types.ts` (optional fields) instead.
 - Opponent strength is bounded (`Skill Level` + movetime); full-strength search is reserved
   for assessment, not for the opponent's replies.
+- **One instance is shared by every interactive caller** (trainer, problems). Exactly one
+  extra instance is reserved for the deep-analysis batch queue (`src/analysis`, ADR-0005
+  decision 1), created lazily on the user's click and disposed when the run ends — each
+  instance commits ~128 MB of WASM linear memory. Do not add a third.
 - Anything DOM/Worker-dependent stays out of `uci.ts` so the tests keep running in Node.
 
 ## Recent changes
 
+- `createEngine({ hashMb })`: optional transposition-table pin, sent right after init. The
+  batch analysis instance passes 16 — at 150ms per search a large table buys nothing and only
+  invites the WASM allocation to grow (ADR-0005).
 - Initial engine module: worker wrapper, UCI parsing, serialized search queue.

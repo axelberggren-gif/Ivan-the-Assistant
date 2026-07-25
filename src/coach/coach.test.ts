@@ -7,7 +7,7 @@ import type {
   EngineLine,
   TrickLine,
 } from '../types'
-import { createCoach } from './index'
+import { classifyMove, createCoach, deriveReasonCodes } from './index'
 
 const coach = createCoach()
 
@@ -349,5 +349,137 @@ describe('reason codes', () => {
     const result = coach.assessMove(inputWithCpLoss(0))
     expect(result.classification).toBe('good')
     expect(result.reasonCodes).toEqual(['ok'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Extracted classification (ADR-0005) — parity with assessMove
+// ---------------------------------------------------------------------------
+
+describe('classifyMove / deriveReasonCodes (extracted)', () => {
+  /** Inputs that between them exercise every branch assessMove classifies. */
+  const cases: Array<[string, AssessMoveInput]> = [
+    ['good', inputWithCpLoss(0)],
+    ['inaccuracy boundary', inputWithCpLoss(30)],
+    ['mistake boundary', inputWithCpLoss(91)],
+    ['blunder boundary', inputWithCpLoss(201)],
+    ['missed tactic', inputWithCpLoss(160)],
+    [
+      'thrown position at mistake-range cpLoss',
+      baseInput({
+        evalBefore: analysis(fenAfterMoves(['e4', 'e5']), 'd4', [line(-90)]),
+        evalAfter: analysis(fenAfterMoves(['e4', 'e5', 'Nf3']), 'd6', [line(-270, ['d6', 'd4'])]),
+      }),
+    ],
+    [
+      'already lost before the move',
+      baseInput({
+        evalBefore: analysis(fenAfterMoves(['e4', 'e5']), 'd4', [line(-200)]),
+        evalAfter: analysis(fenAfterMoves(['e4', 'e5', 'Nf3']), 'd6', [line(-300, ['d6'])]),
+      }),
+    ],
+    [
+      'hangs a knight',
+      (() => {
+        const historySan = ['e4', 'e5', 'Nf3', 'Nc6', 'Ng5']
+        const fenBefore = fenAfterMoves(historySan.slice(0, 4))
+        const fenAfter = fenAfterMoves(historySan)
+        return baseInput({
+          historySan,
+          san: 'Ng5',
+          fenBefore,
+          fenAfter,
+          evalBefore: analysis(fenBefore, 'Bc4', [line(30, ['Bc4', 'Bc5'])]),
+          evalAfter: analysis(fenAfter, 'Qxg5', [line(-280, ['Qxg5', 'Nc3', 'Nf6', 'd3'])]),
+        })
+      })(),
+    ],
+    [
+      'early queen',
+      (() => {
+        const historySan = ['e4', 'e5', 'Qh5']
+        return baseInput({
+          historySan,
+          san: 'Qh5',
+          fenBefore: fenAfterMoves(['e4', 'e5']),
+          fenAfter: fenAfterMoves(historySan),
+          evalBefore: analysis(fenAfterMoves(['e4', 'e5']), 'Nf3', [line(30)]),
+          evalAfter: analysis(fenAfterMoves(historySan), 'Nc6', [line(-10, ['Nc6'])]),
+        })
+      })(),
+    ],
+    [
+      'black user, perspective converted',
+      baseInput({
+        userColor: 'black',
+        historySan: ['e4', 'e5'],
+        san: 'e5',
+        fenBefore: fenAfterMoves(['e4']),
+        fenAfter: fenAfterMoves(['e4', 'e5']),
+        evalBefore: analysis(fenAfterMoves(['e4']), 'c5', [line(-30, ['c5'])]),
+        evalAfter: analysis(fenAfterMoves(['e4', 'e5']), 'Nf3', [line(50, ['Nf3'])]),
+      }),
+    ],
+    [
+      'mate scores',
+      baseInput({
+        evalBefore: analysis(fenAfterMoves(['e4', 'e5']), 'd4', [line(undefined, ['d4'], 5)]),
+        evalAfter: analysis(fenAfterMoves(['e4', 'e5', 'Nf3']), 'Qh4', [
+          line(undefined, ['Qh4', 'g3', 'Qxe4'], -2),
+        ]),
+      }),
+    ],
+  ]
+
+  for (const [name, input] of cases) {
+    it(`agrees with assessMove: ${name}`, () => {
+      const assessment = coach.assessMove(input)
+      const verdict = classifyMove(input.evalBefore, input.evalAfter, input.userColor)
+
+      expect(verdict.classification).toBe(assessment.classification)
+      expect(verdict.cpLoss).toBe(assessment.cpLoss)
+
+      const codes = deriveReasonCodes({
+        historySan: input.historySan,
+        fenAfter: input.fenAfter,
+        san: input.san,
+        evalBefore: input.evalBefore,
+        evalAfter: input.evalAfter,
+        userColor: input.userColor,
+        cpLoss: verdict.cpLoss,
+        threwPosition: verdict.threwPosition,
+      })
+      expect(codes).toEqual(assessment.reasonCodes)
+    })
+  }
+
+  it('reports threwPosition only for a collapse from a holdable position', () => {
+    const thrown = classifyMove(
+      analysis(fenAfterMoves(['e4', 'e5']), 'd4', [line(-90)]),
+      analysis(fenAfterMoves(['e4', 'e5', 'Nf3']), 'd6', [line(-270)]),
+      'white',
+    )
+    expect(thrown).toMatchObject({ classification: 'blunder', threwPosition: true })
+
+    const alreadyLost = classifyMove(
+      analysis(fenAfterMoves(['e4', 'e5']), 'd4', [line(-200)]),
+      analysis(fenAfterMoves(['e4', 'e5', 'Nf3']), 'd6', [line(-300)]),
+      'white',
+    )
+    expect(alreadyLost).toMatchObject({ classification: 'mistake', threwPosition: false })
+  })
+
+  it('never returns an empty reason-code list', () => {
+    const codes = deriveReasonCodes({
+      historySan: [],
+      fenAfter: fenAfterMoves([]),
+      san: 'e4',
+      evalBefore: analysis(fenAfterMoves([]), 'e4', [line(20)]),
+      evalAfter: analysis(fenAfterMoves(['e4']), 'e5', [line(20)]),
+      userColor: 'white',
+      cpLoss: 0,
+      threwPosition: false,
+    })
+    expect(codes).toEqual(['ok'])
   })
 })

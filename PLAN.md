@@ -203,18 +203,19 @@ Computed from PGN metadata alone, no engine needed:
 - **Opening repertoire report** — your most-played openings as White and Black, with score per opening: "You play the Italian in 40% of White games and score 58%, but against the Sicilian you score 31%"
 - **Result patterns** — how games end (checkmate, resignation, **timeout**), game length distribution, performance by day/time
 
-### 5.2 Deep analysis (engine layer — batch, background) — **specced, not built (ADR-0005)**
+### 5.2 Deep analysis (engine layer — batch, background) — **built (ADR-0005)**
 
 Run games through the same in-browser Stockfish pipeline the trainer uses, in a background
 queue over your most recent games:
 
-- **Blunder timeline** — where in the game you lose it (opening / middlegame / endgame), average centipawn loss per phase
+- **Blunder timeline** — where in the game you lose it (opening / early middlegame), average centipawn loss per phase. The pass stops at move 30, so the endgame is deliberately out of scope for this milestone
 - **Opening-phase diagnosis** — the coach's development heuristics applied to *your real games*: how often you leave the opening behind in development, which specific move numbers you drift at
 - **Recurring mistakes** — cluster blunders by motif (hung pieces, missed forks, back-rank) using the same reason-code engine as the trainer
 
-Milestone 5 shipped §5.1 and §5.3 only; this section is the unbuilt half and the blocker on
-Milestone 6d. **ADR-0005** records the architecture decisions; the build plan below is the
-work.
+Milestone 5 originally shipped §5.1 and §5.3 only; this section was its unbuilt half.
+**ADR-0005** records the architecture decisions, and §5.2a–5.2d below all landed — the code
+lives in `src/analysis/` with the weakness panel on the insights screen. Milestone 6d is no
+longer blocked (and stays opening-only by decision 3).
 
 #### 5.2.1 The shape of it
 
@@ -243,17 +244,17 @@ solve problems while their games are analysed. Progress is visible from every sc
 cancel from either. The ETA is averaged over genuinely analysed games only, so a re-run over
 a warm cache does not promise seconds and then take minutes.
 
-#### 5.2 build plan (one PR each)
+#### 5.2 build plan — **all four shipped**
 
-- **5.2a — Coach extraction.** Export `classifyMove` + `deriveReasonCodes` from `src/coach`;
+- **5.2a — Coach extraction.** ✅ Export `classifyMove` + `deriveReasonCodes` from `src/coach`;
   refactor `assessMove` to call them; `coach.test.ts` proves behaviour is unchanged. No
   user-visible change — this just unblocks everything else.
-- **5.2b — Annotate one game.** `src/analysis/` with `types.ts`, `pgn.ts`, `annotate.ts`;
+- **5.2b — Annotate one game.** ✅ `src/analysis/` with `types.ts`, `pgn.ts`, `annotate.ts`;
   tested against a fake engine (the `session.test.ts` seam). Still no UI.
-- **5.2c — The queue.** Batch scheduler on its own engine instance, IndexedDB cache,
+- **5.2c — The queue.** ✅ Batch scheduler on its own engine instance, IndexedDB cache,
   progress + ETA + cancel + incremental commit, `createAnalysisStore(deps)` mounted at `App`
   level so runs survive navigation. `InsightsGame` gains an optional `pgn`.
-- **5.2d — The dashboard.** A weakness panel on the insights screen: blunder timeline, phase
+- **5.2d — The dashboard.** ✅ A weakness panel on the insights screen: blunder timeline, phase
   table, development diagnosis, recurring mistakes, and your worst moments linking back to
   the game on chess.com. Plus the cross-screen progress chip.
 
@@ -272,8 +273,8 @@ This is where insights stop being a dashboard and become coaching:
 ### 5.4 Build notes
 
 - Ships as **Milestone 5** after trainer v1: §5.1 (fetch + stats dashboard) is a small, self-contained increment; §5.2 reuses the Milestone 3 engine pipeline; §5.3 reuses the trainer itself
-- Landed in that order minus §5.2: the dashboard (§5.1) and the train-what-you-lose banner
-  (§5.3, opening-based) shipped in Milestone 5; §5.2 is specced in ADR-0005 and still open
+- Landed in that order: the dashboard (§5.1) and the train-what-you-lose banner (§5.3,
+  opening-based) shipped in Milestone 5; §5.2 followed as 5.2a–5.2d per ADR-0005
 - Rate limits are generous for serial requests; fetching a full history (even years) takes seconds per month archive and is done once, then cached
 - Lichess has an equivalent public API — supporting both later is trivial since everything downstream consumes PGN
 

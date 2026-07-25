@@ -38,10 +38,98 @@ export function createCoach(): CoachAPI {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Classification, extracted (ADR-0005)
+//
+// `assessMove` is trainer-shaped: it wants a BookCheckResult and it emits
+// stop-and-explain prose. Batch analysis (src/analysis) wants the verdict
+// only, so the two steps below are the shared, reusable core — and the
+// thresholds above stay the single source of truth for both callers.
+// ---------------------------------------------------------------------------
+
+export interface MoveClassification {
+  classification: Exclude<Classification, 'book'>
+  /** Centipawns lost vs the best move, user's perspective (>= 0) */
+  cpLoss: number
+  /** Eval collapsed a holdable position (the coach's "threw it" rule). */
+  threwPosition: boolean
+}
+
+/**
+ * Classify one move from the engine evals before and after it. Pure: no book,
+ * no trap, no prose. A thrown position is always a blunder regardless of
+ * cpLoss.
+ */
+export function classifyMove(
+  evalBefore: EngineAnalysis,
+  evalAfter: EngineAnalysis,
+  userColor: Color,
+): MoveClassification {
+  const cpLoss = computeCpLoss(evalBefore, evalAfter, userColor)
+  const beforeUser = bestLineUserCp(evalBefore, userColor)
+  const afterUser = bestLineUserCp(evalAfter, userColor)
+
+  let classification: Exclude<Classification, 'book'>
+  if (cpLoss < GOOD_MAX) classification = 'good'
+  else if (cpLoss <= INACCURACY_MAX) classification = 'inaccuracy'
+  else if (cpLoss <= MISTAKE_MAX) classification = 'mistake'
+  else classification = 'blunder'
+
+  const threwPosition = afterUser < COLLAPSE_AFTER && beforeUser > COLLAPSE_BEFORE
+  if (threwPosition) classification = 'blunder'
+
+  return { classification, cpLoss, threwPosition }
+}
+
+export interface ReasonCodeInput {
+  /** Full game history in SAN, INCLUDING the move being judged as last element */
+  historySan: string[]
+  fenAfter: string
+  san: string
+  evalBefore: EngineAnalysis
+  evalAfter: EngineAnalysis
+  userColor: Color
+  /** From `classifyMove` — reason codes only fire with enough evidence */
+  cpLoss: number
+  threwPosition: boolean
+}
+
+/**
+ * Reason codes for a classified move, in priority order, only where there is
+ * concrete evidence. Never empty: falls back to `['ok']`.
+ */
+export function deriveReasonCodes(input: ReasonCodeInput): ReasonCode[] {
+  const { cpLoss, threwPosition, san, evalBefore, evalAfter, userColor } = input
+  const reasonCodes: ReasonCode[] = []
+  const pvAfter = evalAfter.lines[0]?.pvSan ?? []
+
+  if (
+    (cpLoss >= HANG_CHECK_MIN_LOSS || threwPosition) &&
+    detectHangsPiece(input.fenAfter, pvAfter, userColor)
+  ) {
+    reasonCodes.push('hangs_piece')
+  }
+  if (cpLoss >= MISSED_TACTIC_MARGIN && san !== evalBefore.bestMoveSan) {
+    reasonCodes.push('misses_tactic')
+  }
+  const facts = lastMoveFacts(input.historySan)
+  if (facts) {
+    if (facts.earlyQueen) reasonCodes.push('early_queen')
+    if (facts.movedTwice) reasonCodes.push('moves_piece_twice')
+    if (facts.retreatToHome) reasonCodes.push('loses_tempo')
+    if (facts.blocksDevelopment) reasonCodes.push('blocks_development')
+    if (facts.neglectsCenter) reasonCodes.push('neglects_center')
+    if (facts.weakensKing) reasonCodes.push('weakens_king')
+  }
+  if (reasonCodes.length === 0) reasonCodes.push('ok')
+  return reasonCodes
+}
+
 function assessMove(input: AssessMoveInput): MoveAssessment {
   const { san, userColor, evalBefore, evalAfter } = input
   const seed = input.historySan.length
-  const cpLoss = computeCpLoss(evalBefore, evalAfter, userColor)
+  const verdict = classifyMove(evalBefore, evalAfter, userColor)
+  const { cpLoss, threwPosition } = verdict
 
   // (a) Authored trap content always wins over generic engine text.
   // Severity decides the consequence: 'losing' traps stop the session,
@@ -87,39 +175,21 @@ function assessMove(input: AssessMoveInput): MoveAssessment {
   }
 
   // (d) Classify by cpLoss, plus the thrown-position rule.
-  const beforeUser = bestLineUserCp(evalBefore, userColor)
-  const afterUser = bestLineUserCp(evalAfter, userColor)
-  let classification: Exclude<Classification, 'book'>
-  if (cpLoss < GOOD_MAX) classification = 'good'
-  else if (cpLoss <= INACCURACY_MAX) classification = 'inaccuracy'
-  else if (cpLoss <= MISTAKE_MAX) classification = 'mistake'
-  else classification = 'blunder'
-  const threwPosition = afterUser < COLLAPSE_AFTER && beforeUser > COLLAPSE_BEFORE
-  if (threwPosition) classification = 'blunder'
+  const { classification } = verdict
   const stopGame = classification === 'blunder'
 
   // (e) Reason codes, in priority order, only with concrete evidence.
-  const reasonCodes: ReasonCode[] = []
   const pvAfter = evalAfter.lines[0]?.pvSan ?? []
-  if (
-    (cpLoss >= HANG_CHECK_MIN_LOSS || threwPosition) &&
-    detectHangsPiece(input.fenAfter, pvAfter, userColor)
-  ) {
-    reasonCodes.push('hangs_piece')
-  }
-  if (cpLoss >= MISSED_TACTIC_MARGIN && san !== evalBefore.bestMoveSan) {
-    reasonCodes.push('misses_tactic')
-  }
-  const facts = lastMoveFacts(input.historySan)
-  if (facts) {
-    if (facts.earlyQueen) reasonCodes.push('early_queen')
-    if (facts.movedTwice) reasonCodes.push('moves_piece_twice')
-    if (facts.retreatToHome) reasonCodes.push('loses_tempo')
-    if (facts.blocksDevelopment) reasonCodes.push('blocks_development')
-    if (facts.neglectsCenter) reasonCodes.push('neglects_center')
-    if (facts.weakensKing) reasonCodes.push('weakens_king')
-  }
-  if (reasonCodes.length === 0) reasonCodes.push('ok')
+  const reasonCodes = deriveReasonCodes({
+    historySan: input.historySan,
+    fenAfter: input.fenAfter,
+    san,
+    evalBefore,
+    evalAfter,
+    userColor,
+    cpLoss,
+    threwPosition,
+  })
   const primary = reasonCodes[0]
 
   // (f) Inline comment from the template library.
