@@ -30,6 +30,10 @@ problems store/UI. Phases per PLAN.md §8: read → reason → solve.
 
 ## Recent changes
 
+- Loader fix: `SOLUTION_MOVES_LENGTHS = [4, 6, 8]` is exported from `loader.ts` and is the
+  single source of truth for allowed solution lengths — `data.test.ts` imports it, and the
+  new `loader.test.ts` proves the loader accepts every length the pipeline produces (the
+  old `[4, 6]` validator rejected the 8-ply `veryLong` lines and broke problems mode).
 - Harder + more varied set: build pipeline now spans ~1400–2500 across four bands, a broad
   motif mix (adds doubleCheck/trappedPiece/deflection/attraction/sacrifice/intermezzo/
   advancedPawn + the defensive `defensiveMove`), and 4-move (`veryLong`) lines. `solve.ts`

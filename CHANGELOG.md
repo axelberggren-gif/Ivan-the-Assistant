@@ -5,6 +5,14 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- fix(problems): accept 4-move (`veryLong`) solutions in the runtime loader. The
+  loader's structural validator still only allowed 4/6-ply solutions, so every
+  regenerated theme file (which now contains 8-ply lines) failed validation and
+  problems mode was dead at runtime — while CI stayed green because nothing ran the
+  bundled data through the loader. The allowed lengths are now exported from
+  `loader.ts` (`SOLUTION_MOVES_LENGTHS`) and imported by `data.test.ts` so data and
+  validator can't drift again, and a new `loader.test.ts` covers the loader with a
+  stubbed fetch (including the 8-ply regression case).
 - feat(problems): harder, more varied problem set + reason-phase scratch board.
   The build pipeline now curates a wide difficulty spread (~1400–2500, balanced across
   four bands), a broad motif mix (adds doubleCheck, trappedPiece, deflection, attraction,

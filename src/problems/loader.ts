@@ -14,8 +14,13 @@ const LOAD_FAILED = 'The problem set failed to load — try reloading.'
 /** UCI move: from-square, to-square, optional promotion piece. */
 const UCI_RE = /^[a-h][1-8][a-h][1-8][qrbnQRBN]?$/
 
-/** Solutions are 2–3 movers: setup move + 3 or 5 plies (PLAN §8.2). */
-const MOVES_LENGTHS = [4, 6]
+/**
+ * Solutions are 2–4 movers (CONTEXT.md, PLAN §8.2): the opponent's setup move
+ * plus 3, 5, or 7 plies. Single source of truth for the allowed lengths —
+ * data.test.ts imports this so the bundled data and this runtime validator
+ * can never drift apart again.
+ */
+export const SOLUTION_MOVES_LENGTHS = [4, 6, 8]
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === 'string' && v.length > 0
@@ -32,7 +37,7 @@ function isValidProblem(v: unknown): v is Problem {
     isNonEmptyString(p.id) &&
     isNonEmptyString(p.fen) &&
     Array.isArray(p.moves) &&
-    MOVES_LENGTHS.includes(p.moves.length) &&
+    SOLUTION_MOVES_LENGTHS.includes(p.moves.length) &&
     p.moves.every((m) => typeof m === 'string' && UCI_RE.test(m)) &&
     isFiniteNumber(p.rating) &&
     Array.isArray(p.themes) &&
