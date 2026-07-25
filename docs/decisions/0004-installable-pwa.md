@@ -16,6 +16,14 @@ is a natural fit: no server work, just a web manifest plus a service worker for 
   registration script is auto-injected into `index.html`.
 - **`registerType: 'autoUpdate'`** — a new deploy's service worker takes over on the next
   load; no update prompt UI to maintain.
+- **Registration lives in `src/main.tsx`** via `virtual:pwa-register`
+  (`injectRegister: null`), *not* the auto-injected `registerSW.js` snippet.
+  *Amended 2026-07-25*: that snippet only registers. The generated worker calls
+  `skipWaiting()` + `clientsClaim()`, so a new worker claimed the open tab while that tab
+  kept running the **old** bundle — old app code against freshly revalidated problem JSON,
+  which is how a shipped loader fix failed to reach an installed client. The virtual
+  module's autoUpdate registration reloads the page on the worker's `activated` event when
+  `isUpdate`/`isExternal` (never on first install), so app and data can't drift apart.
 - **Caching strategy tuned to the asset sizes:**
   - *Precache* the hashed app shell (JS/CSS/HTML), icons, and the small engine loader JS
     (~837 KiB total).

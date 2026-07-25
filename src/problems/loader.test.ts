@@ -68,13 +68,34 @@ describe('createProblemSource', () => {
     await expect(source.theme('fork')).resolves.toHaveLength(SOLUTION_MOVES_LENGTHS.length)
   })
 
-  it('rejects a theme file containing a solution of an unexpected length', async () => {
+  it('skips entries that fail validation and serves the rest', async () => {
+    // Regression: a single unusable entry used to throw for the whole file,
+    // which took problems mode down. Bad entries are dropped, never served.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     stubFetch({
       '/problems/manifest.json': MANIFEST,
-      '/problems/fork.json': [problem('ok', 2), problem('too-long', 5)],
+      '/problems/fork.json': [
+        problem('ok', 2),
+        problem('too-long', 5),
+        { ...problem('bad-uci', 2), moves: ['e2e4', 'nonsense', 'e2e4', 'e7e5'] },
+        { ...problem('no-rating', 3), rating: 'high' },
+        problem('ok-2', 4),
+      ],
     })
     const source = createProblemSource('/problems')
-    await expect(source.theme('fork')).rejects.toThrow(/malformed problem/)
+    const problems = await source.theme('fork')
+    expect(problems.map((p) => p.id)).toEqual(['ok', 'ok-2'])
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('rejects a theme file with no usable problems at all', async () => {
+    stubFetch({
+      '/problems/manifest.json': MANIFEST,
+      '/problems/fork.json': [problem('too-long', 5), { id: 'junk' }],
+    })
+    const source = createProblemSource('/problems')
+    await expect(source.theme('fork')).rejects.toThrow(/no usable problems/)
   })
 
   it('rejects an unknown theme id', async () => {
