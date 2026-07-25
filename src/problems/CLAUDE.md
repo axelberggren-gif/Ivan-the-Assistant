@@ -30,6 +30,11 @@ problems store/UI. Phases per PLAN.md §8: read → reason → solve.
 
 ## Recent changes
 
+- Loader degrades instead of dying: an entry that fails structural validation is **dropped**
+  (never served, warned about on the console) and the file's remaining problems are
+  returned; only a file with *no* usable entries throws. All-or-nothing validation meant a
+  single bad entry — or an app bundle whose validator had drifted from the data, as with the
+  8-ply regression — took the whole mode down.
 - Loader fix: `SOLUTION_MOVES_LENGTHS = [4, 6, 8]` is exported from `loader.ts` and is the
   single source of truth for allowed solution lengths — `data.test.ts` imports it, and the
   new `loader.test.ts` proves the loader accepts every length the pipeline produces (the

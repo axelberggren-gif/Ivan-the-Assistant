@@ -267,6 +267,47 @@ describe('createProblemsStore', () => {
     expect(store.getState().problem?.id).toBe('p2')
   })
 
+  it('skips a theme file that fails to load and draws from another', async () => {
+    // Regression: one unloadable theme file (bad data, failed fetch) used to
+    // dead-end the draw with an error; now the draw retries elsewhere.
+    problems.theme = async (themeId: string): Promise<Problem[]> => {
+      problems.themeCalls.push(themeId)
+      if (themeId === 'backRankMate') {
+        throw new Error('Problem file "backRankMate.json" contains no usable problems.')
+      }
+      return themeId === 'deflection' ? [P2] : []
+    }
+    store.getState().loadManifest()
+    await vi.advanceTimersByTimeAsync(0)
+    rigRandom('p1') // draws backRankMate first, which throws
+    store.getState().startProblem()
+    await vi.advanceTimersByTimeAsync(600)
+
+    const st = store.getState()
+    expect(st.status).toBe('read')
+    expect(st.problem?.id).toBe('p2')
+    expect(st.error).toBeNull()
+    expect(problems.themeCalls).toEqual(['backRankMate', 'deflection'])
+  })
+
+  it('surfaces the load error when every theme file fails', async () => {
+    problems.theme = async (themeId: string): Promise<Problem[]> => {
+      problems.themeCalls.push(themeId)
+      throw new Error('The problem set failed to load — try reloading.')
+    }
+    store.getState().loadManifest()
+    await vi.advanceTimersByTimeAsync(0)
+    rigRandom('p1')
+    store.getState().startProblem()
+    await vi.advanceTimersByTimeAsync(600)
+
+    const st = store.getState()
+    expect(st.status).toBe('picking')
+    expect(st.error).toMatch(/failed to load/)
+    // Both themes tried once each — bounded, no infinite retry.
+    expect(problems.themeCalls.sort()).toEqual(['backRankMate', 'deflection'])
+  })
+
   it('startProblem is a no-op until the manifest is loaded', () => {
     store.getState().startProblem()
     expect(store.getState().status).toBe('picking')

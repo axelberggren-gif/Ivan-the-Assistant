@@ -27,6 +27,10 @@
 
 ## Recent changes
 
+- Resilient problem draw: `startRandomProblem` skips a theme file that fails to load and
+  re-draws from the remaining themes (`MAX_THEME_DRAW_ATTEMPTS = 4`, bounded so an offline
+  client fails fast). One broken file costs a few puzzles, not the whole mode; the last
+  failure's message is what surfaces if every attempt fails.
 - Reason-phase scratch board: `problems.ts` gains `exploreSan` state and `exploreMove` /
   `undoExplore` / `resetExplore` / `commitExploreToReasoning` actions. Exploration runs on a
   throwaway `scratch` chess instance (the real `chess` is never touched), so trying lines

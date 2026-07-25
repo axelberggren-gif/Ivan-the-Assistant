@@ -16,6 +16,13 @@ export default defineConfig({
     VitePWA({
       // Ship SW updates silently: a new deploy's worker takes over on next load.
       registerType: 'autoUpdate',
+      // Registration lives in src/main.tsx (`virtual:pwa-register`) instead of
+      // the injected registerSW.js snippet: that snippet only registers, so an
+      // open tab kept running the OLD bundle after a new worker claimed it —
+      // old app code against freshly revalidated problem JSON. The virtual
+      // module's autoUpdate registration reloads the page once the new worker
+      // takes control, so app and data can't drift apart.
+      injectRegister: null,
       // Precache these too (they live in public/, not in the module graph).
       includeAssets: ['favicon.png', 'apple-touch-icon.png'],
       manifest: {

@@ -5,6 +5,16 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- fix(problems): stop one bad problem file from killing problems mode. Reported as
+  `Problem file "backRankMate.json" contains a malformed problem` across several files —
+  the bundled data is in fact valid (all 8315 problems pass the loader and the chess.js
+  replay test); the error came from an *installed PWA still running the pre-fix bundle*,
+  whose old validator rejected the 8-ply `veryLong` lines. Three changes so neither half
+  can recur: the loader now **drops** entries that fail structural validation and only
+  errors when a file has nothing usable left; a failed theme draw **retries another theme**
+  (bounded at 4) instead of dead-ending the mode; and the service worker registration moved
+  to `virtual:pwa-register` in `src/main.tsx` so an updated worker **reloads the page**
+  instead of leaving an open tab on stale code (ADR-0004 amended).
 - fix(problems): accept 4-move (`veryLong`) solutions in the runtime loader. The
   loader's structural validator still only allowed 4/6-ply solutions, so every
   regenerated theme file (which now contains 8-ply lines) failed validation and

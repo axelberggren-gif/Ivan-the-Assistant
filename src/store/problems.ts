@@ -159,8 +159,8 @@ function uciParts(uci: string): { from: string; to: string; promotion?: string }
  * uniform pick within the file is a uniform pick across the WHOLE problem set
  * (theme files are just storage; problems are served unlabeled).
  */
-function pickWeightedThemeId(manifest: ProblemManifest): string | null {
-  const themes = manifest.themes.filter((t) => t.count > 0)
+function pickWeightedThemeId(manifest: ProblemManifest, exclude?: ReadonlySet<string>): string | null {
+  const themes = manifest.themes.filter((t) => t.count > 0 && !exclude?.has(t.id))
   const total = themes.reduce((sum, t) => sum + t.count, 0)
   if (total === 0) return null
   let r = Math.random() * total
@@ -170,6 +170,14 @@ function pickWeightedThemeId(manifest: ProblemManifest): string | null {
   }
   return themes[themes.length - 1].id
 }
+
+/**
+ * How many theme files a single draw may try before giving up. One unloadable
+ * file (bad data, a failed fetch) must not dead-end problems mode — we draw
+ * again from the remaining themes. Bounded so a full outage fails fast instead
+ * of hammering every file in the manifest.
+ */
+const MAX_THEME_DRAW_ATTEMPTS = 4
 
 // ---------------------------------------------------------------------------
 // Store factory
@@ -420,8 +428,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
     function startRandomProblem(): void {
       const manifest = get().manifest
       if (!manifest) return // the start button only renders once the manifest is loaded
-      const themeId = pickWeightedThemeId(manifest)
-      if (themeId === null) {
+      if (pickWeightedThemeId(manifest) === null) {
         set({ error: 'No problems available — try reloading' })
         return
       }
@@ -430,18 +437,34 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       clearTimers()
       set({ status: 'loading', problem: null, error: null })
       void (async () => {
-        try {
-          const problems = await deps.problems.theme(themeId)
-          if (epoch !== myEpoch) return
-          if (problems.length === 0) {
-            set({ status: 'picking', error: 'No problems available — try reloading' })
+        // A theme file that won't load is skipped and the draw retried from
+        // the remaining themes — one broken file costs a few puzzles, not the
+        // whole mode. The last failure is what the user sees if all tries fail.
+        const tried = new Set<string>()
+        let lastError: unknown = null
+        for (let attempt = 0; attempt < MAX_THEME_DRAW_ATTEMPTS; attempt++) {
+          const themeId = pickWeightedThemeId(manifest, tried)
+          if (themeId === null) break
+          tried.add(themeId)
+          try {
+            const problems = await deps.problems.theme(themeId)
+            if (epoch !== myEpoch) return
+            if (problems.length === 0) continue
+            beginProblem(pickRandom(problems), myEpoch)
             return
+          } catch (e) {
+            if (epoch !== myEpoch) return
+            lastError = e
           }
-          beginProblem(pickRandom(problems), myEpoch)
-        } catch (e) {
-          if (epoch !== myEpoch) return
-          set({ status: 'picking', error: errMsg(e, 'Could not load a problem') })
         }
+        if (epoch !== myEpoch) return
+        set({
+          status: 'picking',
+          error:
+            lastError === null
+              ? 'No problems available — try reloading'
+              : errMsg(lastError, 'Could not load a problem'),
+        })
       })()
     }
 
