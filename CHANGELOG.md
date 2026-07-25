@@ -5,6 +5,15 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- docs(plan): spec deep analysis (PLAN.md §5.2, ADR-0005) — the unbuilt half of Milestone 5
+  and the blocker on 6d's motif half. A background queue annotates your real chess.com games
+  with Stockfish on its **own** engine instance (a scoped exception to App.tsx's shared-engine
+  rule, so a 5-minute batch never parks an interactive move), reusing the coach's thresholds
+  via new exported `classifyMove` / `deriveReasonCodes` rather than duplicating them. Bounded
+  and resumable: 150ms/position, ply cap 60, decided-position cutoff, per-game IndexedDB cache,
+  cancellable, results committed game by game. Lands as a new `src/analysis/` module (Phase 5's
+  post-game review reuses the same primitive) across five PRs, 5.2a–5.2e. Three decisions need
+  the owner's call — see the ADR's "Open questions". Docs only; no code yet.
 - fix(problems): accept 4-move (`veryLong`) solutions in the runtime loader. The
   loader's structural validator still only allowed 4/6-ply solutions, so every
   regenerated theme file (which now contains 8-ply lines) failed validation and
