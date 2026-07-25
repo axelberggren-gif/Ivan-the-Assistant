@@ -184,6 +184,12 @@ export interface InsightsGame {
   openingFamily?: string
   /** Number of full moves in the game (from PGN movetext), if parseable */
   fullMoves?: number
+  /**
+   * Raw PGN as chess.com served it, when the game had one. Carried through so
+   * deep analysis (src/analysis, ADR-0005 decision 5) can work from the same
+   * normalized list the dashboard uses instead of a second parallel list.
+   */
+  pgn?: string
 }
 
 export interface WdlSplit {

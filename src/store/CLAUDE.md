@@ -8,6 +8,8 @@
 - `context.ts` / `problemsContext.ts` / `insightsContext.ts` — React wiring (`useStore`);
   keep React out of the store files themselves.
 - `insights.ts` — chess.com insights state, separate store from the training session.
+- `analysis.ts` — the deep-analysis run (PLAN.md §5.2). Same seam: `AnalysisDeps`
+  (`createEngine` factory, cache, clock) injected at creation, faked in `analysis.test.ts`.
 
 ## Invariants
 
@@ -21,12 +23,19 @@
   play continues engine-only to the middlegame cap (~move 25).
 - Session deps are injected, never imported concretely — tests rely on this seam.
 
+- Deep analysis is **created at App level**, not inside the insights screen, so a run
+  survives navigation (ADR-0005 decision 4b). It never auto-starts, is always cancellable,
+  commits game by game, and owns a batch engine instance that is disposed when the run ends.
+
 - Problems-mode transitions follow PLAN.md §8.1: read check gates reasoning, reasoning
   gates solving; a wrong solve move → stop-and-explain → fix-gated retry; the reasoning
   coach failing (or no key) degrades to the engine-line reveal, never blocks the phase.
 
 ## Recent changes
 
+- `analysis.ts` (+ `analysis.test.ts`) and `analysisContext.ts`: the background deep-analysis
+  store — select → annotate → aggregate, with progress/ETA, cancel that keeps completed work,
+  and a report rebuilt on every per-game commit so the panel fills in as the run proceeds.
 - Resilient problem draw: `startRandomProblem` skips a theme file that fails to load and
   re-draws from the remaining themes (`MAX_THEME_DRAW_ATTEMPTS = 4`, bounded so an offline
   client fails fast). One broken file costs a few puzzles, not the whole mode; the last

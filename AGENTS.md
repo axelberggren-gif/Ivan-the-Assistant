@@ -42,6 +42,7 @@ Respect them strictly — they are not optional style preferences.
 @src/coach/CLAUDE.md
 @src/store/CLAUDE.md
 @src/insights/CLAUDE.md
+@src/analysis/CLAUDE.md
 @src/problems/CLAUDE.md
 @src/llm/CLAUDE.md
 
@@ -65,7 +66,9 @@ Respect them strictly — they are not optional style preferences.
    `src/data/index.ts`.
 5. **All engine access goes through `src/engine/`.** UI, coach, and store never talk to the
    Stockfish worker or parse UCI directly. Pure protocol helpers live in `src/engine/uci.ts`
-   (Node-testable, no DOM); the worker wrapper lives in `src/engine/index.ts`.
+   (Node-testable, no DOM); the worker wrapper lives in `src/engine/index.ts`. Interactive
+   callers share **one** instance; a second one is reserved for the deep-analysis batch queue
+   and disposed as soon as its run ends (ADR-0005).
 6. **No secrets, no accounts, no personal data.** The chess.com integration uses the public
    unauthenticated API only. Anything that would need an API key, login, or backend is an
    architecture change: write an ADR first and get the owner's OK before building it.

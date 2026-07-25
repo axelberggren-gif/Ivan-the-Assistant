@@ -131,6 +131,7 @@ export const normalizeGames: NormalizeGames = (raw, username) => {
       openingName,
       openingFamily,
       fullMoves,
+      ...(g.pgn ? { pgn: g.pgn } : {}),
     })
   }
 

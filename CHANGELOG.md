@@ -5,6 +5,23 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- feat(analysis): deep analysis — run your real games through Stockfish and the coach
+  (PLAN.md §5.2a–5.2d, ADR-0005 now accepted). Milestone 5's unbuilt half: a new
+  `src/analysis/` module annotates your chess.com games move by move, and the insights screen
+  gains a weakness panel — blunder timeline, cost per phase, opening-phase diagnosis from the
+  coach's own development heuristics, recurring mistakes clustered by reason code, and your
+  worst moments linking back to the game. The coach's classification core is now exported as
+  `classifyMove` / `deriveReasonCodes` (5.2a) so the report and the live trainer share one set
+  of thresholds instead of forking them; `coach.test.ts` proves the parity case by case. The
+  run is opt-in, bounded (150ms/position, ply cap 60 = move 30, decided-position cutoff, 25
+  games by default), cached forever per game in IndexedDB, cancellable without losing
+  completed work, and it commits game by game so the panel fills in as it goes. It runs on its
+  **own** engine instance created lazily and disposed the moment it ends (ADR-0005 decision 1,
+  +128 MB while running) and lives at `App` level, so you can train or solve problems while it
+  works — progress and cancel follow you across screens via a nav chip, with an ETA averaged
+  over genuinely analysed games so a warm cache never promises seconds and then takes minutes.
+  The ~10 worst moves are re-run at full depth before being shown. `InsightsGame` gains an
+  optional `pgn`; `createEngine` gains an optional `{ hashMb }`; `src/types.ts` is untouched
 - docs(plan): spec deep analysis (PLAN.md §5.2, ADR-0005) — the unbuilt half of Milestone 5
   and the blocker on 6d's motif half. A background queue annotates your real chess.com games
   with Stockfish on its **own** engine instance (a scoped exception to App.tsx's shared-engine

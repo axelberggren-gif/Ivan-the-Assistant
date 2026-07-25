@@ -11,6 +11,7 @@ import type {
   WdlSplit,
 } from '../insights/types'
 import { useInsights } from '../store/insightsContext'
+import WeaknessPanel from './WeaknessPanel'
 
 interface InsightsScreenProps {
   /** Provided by App: switches to the trainer and starts the opening. */
@@ -174,6 +175,8 @@ function Dashboard({ onTrain }: InsightsScreenProps) {
       <ResultsGrid report={report} />
       <OpeningsTable openings={report.openings} recommendations={recommendations} />
       <Endings report={report} />
+      {/* Engine-based half of Milestone 5 (PLAN.md §5.2): opt-in, background. */}
+      <WeaknessPanel />
     </>
   )
 }
