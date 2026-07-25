@@ -2,7 +2,7 @@
  * Public surface of src/problems (Milestone 6 logic layer). The problems
  * store (src/store/problems.ts) and UI build against these exports.
  */
-export { createProblemSource } from './loader'
+export { createProblemSource, SOLUTION_MOVES_LENGTHS } from './loader'
 export {
   materialDiff,
   verdictFromCp,

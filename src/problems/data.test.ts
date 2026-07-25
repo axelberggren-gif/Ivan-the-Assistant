@@ -4,6 +4,7 @@ import { Chess } from 'chess.js'
 // installed in this browser-first repo, so the import has no declarations.
 import { existsSync, readFileSync } from 'node:fs'
 import type { Problem, ProblemManifest } from '../types'
+import { SOLUTION_MOVES_LENGTHS } from './loader'
 
 /**
  * Proof for the bundled problem data (PLAN.md §8.2, ADR-0003): like opening
@@ -106,10 +107,12 @@ if (!existsSync(manifestUrl)) {
 
           expect(problem.themes).toContain(theme.id)
 
-          // 2–4 user moves plus the opponent's setup move (moves[0]).
+          // 2–4 user moves plus the opponent's setup move (moves[0]). The
+          // allowed lengths come from the loader so the bundled data can
+          // never drift from what the runtime validator accepts.
           expect(
-            [4, 6, 8],
-            `problem ${problem.id} has ${problem.moves.length} moves (want 4, 6, or 8)`,
+            SOLUTION_MOVES_LENGTHS,
+            `problem ${problem.id} has ${problem.moves.length} moves (want ${SOLUTION_MOVES_LENGTHS.join(', ')})`,
           ).toContain(problem.moves.length)
 
           // FEN parses, every UCI move legal in sequence.
