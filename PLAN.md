@@ -228,14 +228,20 @@ what Phase 5's post-game review needs:
 | `annotate.ts` | one game → `AnnotatedGame`, driving the injected engine |
 | `queue.ts` | batch scheduler: cache, progress, cancel, incremental commit |
 | `aggregate.ts` | `AnnotatedGame[]` → `WeaknessReport` (pure) |
-| `motifs.ts` | tactical motifs from the refutation line (pure) — the 6d bridge |
 | `templates.ts` | all report prose (mirror of the `src/coach/templates.ts` rule) |
 
 Key constraints, all from ADR-0005: analysis runs on its **own** engine instance so it never
-parks an interactive move behind a 5-minute batch; classification comes from the coach's
-thresholds via new exported `classifyMove` / `deriveReasonCodes` (never duplicated); the run
-is time-boxed (150ms/position, ply cap 60, decided-position cutoff), cached per game in
-IndexedDB forever, cancellable, and commits results game by game.
+parks an interactive move behind a 5-minute batch (measured cost: +128 MB while running,
+freed on dispose); classification comes from the coach's thresholds via new exported
+`classifyMove` / `deriveReasonCodes` (never duplicated); the run is time-boxed
+(150ms/position, ply cap 60, decided-position cutoff), cached per game in IndexedDB forever,
+cancellable, and commits results game by game.
+
+**It runs in the background.** The store lives at `App` level, so the user can go train or
+solve problems while their games are analysed. Progress is visible from every screen —
+"Game 7 of 25 · ~3 min left" on the insights screen, a compact chip in the nav elsewhere,
+cancel from either. The ETA is averaged over genuinely analysed games only, so a re-run over
+a warm cache does not promise seconds and then take minutes.
 
 #### 5.2 build plan (one PR each)
 
@@ -245,13 +251,15 @@ IndexedDB forever, cancellable, and commits results game by game.
 - **5.2b — Annotate one game.** `src/analysis/` with `types.ts`, `pgn.ts`, `annotate.ts`;
   tested against a fake engine (the `session.test.ts` seam). Still no UI.
 - **5.2c — The queue.** Batch scheduler on its own engine instance, IndexedDB cache,
-  progress + cancel + incremental commit, `createAnalysisStore(deps)`. `InsightsGame` gains
-  an optional `pgn`.
+  progress + ETA + cancel + incremental commit, `createAnalysisStore(deps)` mounted at `App`
+  level so runs survive navigation. `InsightsGame` gains an optional `pgn`.
 - **5.2d — The dashboard.** A weakness panel on the insights screen: blunder timeline, phase
   table, development diagnosis, recurring mistakes, and your worst moments linking back to
-  the game on chess.com.
-- **5.2e — Motif bridge.** `motifs.ts` + `recommendProblems`, mapping what you actually fall
-  for onto bundled problem themes. This is what makes Milestone 6d's motif half possible.
+  the game on chess.com. Plus the cross-screen progress chip.
+
+*(A fifth step — mapping the coach's reason codes onto problem motifs, to recommend problems
+by what you actually fall for — was specced and cut on 2026-07-25: the reason codes don't
+carry a motif, and 6d stays opening-only. See ADR-0005, decision 3.)*
 
 ### 5.3 The killer feature: closing the loop with the trainer
 
@@ -393,11 +401,11 @@ The user plays their moves out; the opponent's forced replies animate. Anti-gues
   for self-checking.
 - **6c — Reasoning coach**: settings screen for the key, `src/llm/` client + prompt
   builders + JSON validation, graded feedback UI.
-- **6d — Close the loop**: insights integration — recommend problems by the motifs and
-  openings you actually lose to (reuses §5.3 plumbing). **Split by dependency**: the
-  *opening* half works off the existing `recommendTraining` and can ship today; the *motif*
-  half needs §5.2's engine analysis (nothing currently knows which motifs you fall for), so
-  it waits on 5.2e.
+- **6d — Close the loop**: insights integration — recommend training by the **openings** you
+  actually lose to (reuses §5.3's `recommendTraining` plumbing). Scoped to openings only as
+  of 2026-07-25: recommending problems by *motif* would need motif detection the coach's
+  reason codes can't provide, and was cut (ADR-0005, decision 3). Not blocked on §5.2 —
+  shippable today.
 
 ### 8.6 Risks
 

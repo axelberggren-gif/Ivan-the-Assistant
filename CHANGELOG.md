@@ -11,9 +11,13 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
   rule, so a 5-minute batch never parks an interactive move), reusing the coach's thresholds
   via new exported `classifyMove` / `deriveReasonCodes` rather than duplicating them. Bounded
   and resumable: 150ms/position, ply cap 60, decided-position cutoff, per-game IndexedDB cache,
-  cancellable, results committed game by game. Lands as a new `src/analysis/` module (Phase 5's
-  post-game review reuses the same primitive) across five PRs, 5.2a–5.2e. Three decisions need
-  the owner's call — see the ADR's "Open questions". Docs only; no code yet.
+  cancellable, results committed game by game. The run lives at `App` level so it continues
+  while you train, reporting "Game 7 of 25 · ~3 min left" from any screen. Lands as a new
+  `src/analysis/` module (Phase 5's post-game review reuses the same primitive) across four
+  PRs, 5.2a–5.2d. Owner decisions on 2026-07-25: background-with-progress accepted; motif
+  detection dropped, so **6d is opening-only and no longer blocked**; the second engine
+  instance (measured at +128 MB while running, freed on dispose) is still open. Docs only;
+  no code yet.
 - fix(problems): accept 4-move (`veryLong`) solutions in the runtime loader. The
   loader's structural validator still only allowed 4/6-ply solutions, so every
   regenerated theme file (which now contains 8-ply lines) failed validation and

@@ -58,8 +58,32 @@ was rejected: it complicates the most delicate code in the repo, cannot preempt 
 `go` without adding UCI `stop` handling, and still leaves interactive moves waiting behind
 whatever batch search is running.
 
+**The memory cost, measured.** Read straight out of the shipped binary's memory section
+(`public/engine/stockfish-18-lite-single.wasm`):
+
+| | Per engine instance |
+|---|---|
+| WASM linear memory, **initial** | 2048 pages = **128 MB**, committed at instantiation |
+| WASM linear memory, max it may grow to | 32768 pages = 2048 MB (never approached here) |
+| Compiled module (7.0 MB `.wasm` on disk) | may be shared between workers by the browser's compiled-module cache; the 128 MB linear memory is **not** shared |
+
+So a second instance costs a flat **+128 MB resident while a run is in progress**, not a
+percentage of something small. Two things bound it: the 128 MB is a fixed reservation this
+build makes regardless of workload, and 150ms searches with a small transposition table
+never push it to grow; and `dispose()` terminates the worker, returning the whole allocation
+the moment the run ends or is cancelled.
+
+Context for that number: a desktop or a current phone will not notice. The devices where it
+could matter are old, low-RAM phones — mobile browsers cap per-tab memory (roughly a
+gigabyte-and-a-bit on recent iOS Safari, device-dependent, and less on older hardware), and
+a tab that crosses the cap is killed outright rather than slowed. At 2 × 128 MB plus the app
+itself we stay well clear of that, but it is the failure mode to watch, and it is why the
+run is opt-in and disposed eagerly rather than kept warm.
+
 Guards on the memory cost: exactly **one** batch instance ever, never auto-started, disposed
-as soon as the run finishes or is cancelled.
+as soon as the run finishes or is cancelled. The batch engine also pins a small hash
+(`setoption name Hash value 16`) — at 150ms per search a large transposition table buys
+nothing and only invites the allocation to grow.
 
 ### 2. Extract the coach's classification, don't duplicate it
 
@@ -102,7 +126,6 @@ post-game review, so it earns its own module:
 | `annotate.ts` | One game → `AnnotatedGame`, driving the injected engine | impure (engine) |
 | `queue.ts` | Batch scheduler: cache lookup, progress, cancel, incremental commit | impure (engine + KVStore) |
 | `aggregate.ts` | `AnnotatedGame[]` → `WeaknessReport` | pure |
-| `motifs.ts` | Tactical motif detection from the refutation PV (the 6d bridge) | pure (chess.js) |
 | `templates.ts` | All analysis-report prose — mirror of the `src/coach/templates.ts` rule | pure |
 
 `src/types.ts` is **not** touched. State lives in a new `createAnalysisStore(deps)` with
@@ -130,6 +153,28 @@ is testable with a fake engine.
 - **Cancellable and incremental**: an `AbortSignal` (same pattern as `LoadOptions.signal`)
   plus per-game commit, so cancelling keeps completed work and the report grows visibly from
   the third game rather than appearing at the twenty-fifth.
+
+### 4b. It runs in the background, and it always says where it's up to
+
+A five-minute job the user has to sit and watch is a five-minute job they cancel. Two
+requirements, both load-bearing rather than polish:
+
+- **The run survives navigation.** The analysis store is created once at `App` level
+  alongside the other stores — not inside the insights screen — so switching to Train or
+  Problems mid-run does not unmount or cancel it. This is also what makes the dedicated
+  batch engine (decision 1) non-negotiable rather than merely tidy: the moment the user can
+  train while analysis runs, the two genuinely need separate engines.
+- **Progress is always visible and always honest.** `AnalysisProgress` carries
+  `gamesDone / gamesTotal`, the current game, `pliesDone / pliesTotal` within it, and an
+  `etaMs`. The insights screen shows the full bar ("Game 7 of 25 · ~3 min left"); a compact
+  chip in the nav shows the same run from any other screen, with cancel available from
+  either.
+
+Two details the ETA has to get right, or it lies. Cached games complete instantly, so the
+estimate is computed from a rolling mean of *actually analysed* games only — otherwise a
+re-run reports "12 seconds left" and then takes four minutes on the first uncached game.
+And games are analysed newest first, so a cancel at any point leaves the user with the
+games they care most about.
 - **Deep re-check of the worst moments**: after the scan, the ~10 worst moves are re-analysed
   at full depth before being shown, so the headline findings are not artefacts of a 150ms
   search.
@@ -140,20 +185,23 @@ is testable with a fake engine.
 header's rule allows it) so the analysis queue can work from the same normalized game list
 the dashboard already has, instead of a second parallel list of raw games.
 
-## Open questions for the owner
+## Owner decisions (2026-07-25)
 
-1. **Second WASM instance while analysing.** It roughly doubles engine memory for the
-   duration of a run — the honest cost of not freezing the app. Acceptable, or should
-   analysis instead refuse to start while a training session is live and reuse the one
-   engine?
-2. **Default scope of 25 games** (~5 minutes on a laptop, longer on a phone). Too slow for a
-   first run, or is a visible progress bar with results appearing as they land enough?
-3. **Motif detection** (decision 4 of the build plan, PLAN.md §5.2e). The coach's reason
-   codes (`hangs_piece`, `misses_tactic`, …) do not map onto Lichess motifs — `misses_tactic`
-   never says *fork* or *pin*. To make 6d recommend problems by motif, `motifs.ts` has to
-   detect a small, honest set from the refutation line (hanging piece, fork, back-rank mate,
-   forced mate) and leave the rest unlabelled. Worth building, or should 6d stay
-   opening-only?
+1. **Second WASM instance — open.** Measured cost is +128 MB resident for the duration of a
+   run (see decision 1), freed on dispose. Awaiting the owner's call, but note that decision
+   2 below effectively settles it: analysis running in the background while the user trains
+   requires two engines. Reusing the single engine is only viable if analysis is allowed to
+   block the rest of the app.
+2. **Background + progress — accepted.** 25 games stands as the default, with the run
+   surviving navigation and reporting `gamesDone / gamesTotal` plus an ETA from any screen
+   (decision 4b).
+3. **Motif detection — dropped.** The coach's reason codes do not carry a motif
+   (`misses_tactic` never says *fork* or *pin*), so mapping them onto Lichess problem themes
+   would mean building a detector on top of the refutation line. Not worth it for now:
+   **6d stays opening-only**, served by the existing `recommendTraining`. `motifs.ts` and the
+   5.2e step are cut from this spec. This does *not* touch §5.2's own "recurring mistakes"
+   finding, which clusters by the coach's reason codes and needs no motif detection — what
+   is dropped is only the bridge from those codes to problem recommendations.
 
 ## Consequences
 
@@ -162,8 +210,10 @@ the dashboard already has, instead of a second parallel list of raw games.
 - **Phase 5 gets its engine for free.** `annotate.ts` takes SAN moves and a colour — it does
   not know or care that they came from chess.com, so post-game review of in-app games reuses
   it unchanged.
-- **6d becomes buildable in full** once `motifs.ts` exists; without it, 6d can still ship the
-  opening half via the existing `recommendTraining`.
+- **6d is unblocked as scoped**: opening-only, via the existing `recommendTraining`, and no
+  longer waiting on anything in §5.2. Recommending problems *by motif* stays possible later
+  — the annotated games are cached, so a future `motifs.ts` could mine them without
+  re-running the engine — but it is out of scope and no code should anticipate it.
 - **The coach refactor is load-bearing.** `classifyMove` / `deriveReasonCodes` become the
   single source of classification for both the live trainer and the report. A future agent
   must not fork these thresholds into `src/analysis/` — that is the exact duplication
