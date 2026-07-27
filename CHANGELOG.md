@@ -21,6 +21,15 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
   solve phase (they cannot be, without leaking the verdict), so
   `ProblemSessionStatus` drops `'opponent_replying'`. Owner decisions, 2026-07-27; PLAN.md
   §8.1, CONTEXT.md "Committed line" / "Answer reveal"
+- feat(ui): click-to-move on both boards — click a piece to highlight it, then click the
+  square it should land on, as an alternative to dragging. An illegal move does nothing at
+  all: the board is unchanged and the piece is simply unselected. Clicking the highlighted
+  piece again puts it down, clicking another of your own pieces re-aims the selection, and
+  clicking anywhere outside the board unselects. Works in the trainer, in the solve phase,
+  and on the reason-phase scratch board (where either side can be moved, as with dragging);
+  the read phase stays hands-off. The decision logic is pure and Node-tested
+  (`src/components/clickToMove.ts`); selection is transient UI state in a shared hook
+  (`useClickToMove`), never in the store
 - feat(analysis): deep analysis — run your real games through Stockfish and the coach
   (PLAN.md §5.2a–5.2d, ADR-0005 now accepted). Milestone 5's unbuilt half: a new
   `src/analysis/` module annotates your chess.com games move by move, and the insights screen

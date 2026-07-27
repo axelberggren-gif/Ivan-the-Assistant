@@ -1,6 +1,7 @@
 import { Chessboard } from 'react-chessboard'
 import type { Arrow, Piece, Square } from 'react-chessboard/dist/chessboard/types'
 import { useSession } from '../store/context'
+import { useClickToMove } from './useClickToMove'
 
 export default function BoardPanel() {
   const fen = useSession((s) => s.fen)
@@ -10,6 +11,10 @@ export default function BoardPanel() {
   const userMove = useSession((s) => s.userMove)
 
   const draggable = status === 'playing'
+
+  // Two ways to play the same move: drag it, or click the piece and then the
+  // square it should land on.
+  const click = useClickToMove({ fen, enabled: draggable, move: userMove })
 
   const arrows: Arrow[] = hintArrow
     ? [[hintArrow.from as Square, hintArrow.to as Square, 'oklch(0.6 0.13 150)']]
@@ -23,11 +28,14 @@ export default function BoardPanel() {
 
   return (
     <div
+      ref={click.boardRef}
       className={`board-wrap${status === 'showing_refutation' ? ' board-refuting' : ''}`}
     >
       <Chessboard
         position={fen}
         onPieceDrop={onPieceDrop}
+        onSquareClick={click.onSquareClick}
+        customSquareStyles={click.squareStyles}
         boardOrientation={userColor}
         arePiecesDraggable={draggable}
         customArrows={arrows}
