@@ -34,9 +34,10 @@ export type ClickAction =
  * Decide what a click on `clicked` means given the current selection.
  *
  * A piece is selectable when it belongs to the side to move — which is the
- * right rule for every board we have: the trainer and the solve phase only
- * accept the user's own moves anyway (the store rejects the rest), and the
- * reason-phase scratch board deliberately lets the user play out both sides.
+ * right rule for every board we have: the trainer only accepts the user's own
+ * moves anyway (the store rejects the rest), while the solve phase and the
+ * reason-phase scratch board both let the user play out the whole line, their
+ * moves and the replies they predict (ADR-0006).
  */
 export function nextClickAction(args: {
   selection: Selection | null

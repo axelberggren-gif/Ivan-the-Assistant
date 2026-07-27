@@ -125,6 +125,32 @@ function reasoningSnippet(reasoning: string): string {
   return `${compact.slice(0, REASONING_SNIPPET_MAX).trimEnd()}…`
 }
 
+/**
+ * The verdict-only line shown when a committed line is wrong, BEFORE anything
+ * is revealed (PLAN.md §8.1). It must say the line failed and nothing else —
+ * not which move failed, no refutation, no solution move, no eval — because
+ * the user is about to choose between another attempt and the answer.
+ */
+export function wrongLineVerdict(): string {
+  return (
+    "Something in that line doesn't hold up. " +
+    'Take another shot at it, or show the answer and take the lesson.'
+  )
+}
+
+/** Shown while the line is still being played out (nothing judged yet). */
+export function buildingLineNotice(): string {
+  return (
+    'Play the whole line out — your moves and the replies you expect — then commit it. ' +
+    'Nothing is judged until you do.'
+  )
+}
+
+/** Shown on a retry the user took instead of seeing the answer. */
+export function tryAgainNotice(): string {
+  return 'Back to the start of the line, with the answer still hidden. Play the line you calculated.'
+}
+
 export interface WrongMoveOpts {
   playedSan: string
   expectedSan: string
@@ -154,6 +180,28 @@ export function wrongMoveExplanation(opts: WrongMoveOpts): string {
   return (
     `${opts.playedSan} doesn't work here.${refutation} ` +
     `The solution move is ${opts.expectedSan}.`
+  )
+}
+
+export interface WrongDefenceOpts {
+  /** The reply the user predicted. */
+  playedSan: string
+  /** The reply the position actually calls for. */
+  expectedSan: string
+}
+
+/**
+ * Stop-and-explain text when the line failed on a *predicted reply* rather
+ * than on one of the user's own moves: the idea may be fine, but it was
+ * calculated against a defence the opponent doesn't have to play. No engine
+ * refutation here — the engine's continuation after a bad defence would teach
+ * the wrong lesson.
+ */
+export function wrongDefenceExplanation(opts: WrongDefenceOpts): string {
+  return (
+    `Your own moves aren't the problem — the reply is. They don't have to play ` +
+    `${opts.playedSan}: ${opts.expectedSan} holds on longer, and your line has to work ` +
+    `against that. Play ${opts.expectedSan} for them and take the line from there.`
   )
 }
 
@@ -187,13 +235,18 @@ function motifPhrase(names: string[]): string {
 }
 
 export interface SolvedOpts {
-  /** Did the attempt need one or more stop-and-explains along the way? */
+  /** Did the attempt go wrong at least once along the way? */
   hadStops: boolean
   /**
    * Curated motif display names (from `curatedMotifNames`). Revealed only
    * NOW, as the learning payoff — never before or during the attempt.
    */
   motifNames?: string[]
+  /**
+   * Did the user ask to see the answer after a wrong move (stop-and-explain),
+   * or did they retry with it still hidden? Only meaningful with `hadStops`.
+   */
+  sawAnswer?: boolean
 }
 
 /** Wrap-up when the whole solution line has been played out. */
@@ -201,6 +254,12 @@ export function solvedMessage(opts: SolvedOpts): string {
   const motifs = opts.motifNames ?? []
   if (opts.hadStops) {
     const reveal = motifs.length > 0 ? ` That was ${motifPhrase(motifs)}.` : ''
+    if (opts.sawAnswer === false) {
+      return (
+        `Solved — you went wrong once and then found it yourself, without seeing the answer.` +
+        `${reveal} Run another problem until the line comes first time.`
+      )
+    }
     return (
       `Solved — it took a stop-and-explain on the way, but you got there.${reveal} ` +
       `Run another problem until the line comes without a stop.`
@@ -243,5 +302,8 @@ export function selfCheckNotice(): string {
 
 /** Anti-guessing rule reminder for the solve phase (PLAN §8.1). */
 export function oneLineAttemptNotice(): string {
-  return 'One continuous line — commit to the moves you calculated. A wrong move ends the attempt.'
+  return (
+    'One committed line — no move-by-move guessing. Play it out in full, commit it, ' +
+    'and then you choose whether to try again or see the answer.'
+  )
 }

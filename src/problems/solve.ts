@@ -116,6 +116,93 @@ export function isSolutionMove(fen: string, playedUci: string, expectedUci: stri
   }
 }
 
+/** The first ply of a committed line that left the authored solution. */
+export interface LineDeviation {
+  /** 0-based ply offset from the solve position (authored ply `plyIndex`). */
+  plyIndex: number
+  /**
+   * Whose ply it was: the user's own move, or the opponent's reply the user
+   * predicted (in the solve phase the user plays both sides).
+   */
+  side: 'user' | 'opponent'
+  /** Position before this ply — what stop-and-explain analyses. */
+  fenBefore: string
+  /** What the user played here. */
+  playedSan: string
+  /** The authored move for this ply. */
+  expectedUci: string
+  expectedSan: string
+}
+
+export interface LineGrade {
+  /** True when the committed line proves the authored solution. */
+  correct: boolean
+  /** The first ply that left the authored line; null when correct. */
+  deviation: LineDeviation | null
+  /** True when the line ends in checkmate delivered by the user. */
+  mated: boolean
+}
+
+/**
+ * Grade a whole committed line at once (PLAN §8.1): the user plays out their
+ * moves *and* the replies they predicted, then commits, and only then is
+ * anything judged. Nothing here is revealed move by move — the caller decides
+ * how much of the returned deviation the user gets to see.
+ *
+ * `solutionUci` and `playedUci` are both ply sequences from `solveFen` (i.e.
+ * `problem.moves.slice(1)`), so even offsets are the user's own moves. The
+ * user's moves follow Lichess matching (`isSolutionMove`: the authored move or
+ * any immediate mate); predicted replies must be the authored reply, since a
+ * line that beats a different defence proves nothing.
+ */
+export function gradeLine(
+  solveFen: string,
+  solutionUci: string[],
+  playedUci: string[],
+): LineGrade {
+  const incomplete: LineGrade = { correct: false, deviation: null, mated: false }
+  let chess: Chess
+  try {
+    chess = new Chess(solveFen)
+  } catch {
+    return incomplete
+  }
+  for (let i = 0; i < playedUci.length; i++) {
+    const expectedUci = solutionUci[i]
+    if (expectedUci === undefined) break // played past the authored line
+    const fenBefore = chess.fen()
+    let played
+    try {
+      played = chess.move(parseUci(playedUci[i]))
+    } catch {
+      return incomplete // illegal ply — the caller only ever feeds legal moves
+    }
+    const isUserPly = i % 2 === 0
+    const ok = isUserPly
+      ? isSolutionMove(fenBefore, playedUci[i], expectedUci)
+      : normalizeUci(playedUci[i]) === normalizeUci(expectedUci)
+    if (!ok) {
+      return {
+        correct: false,
+        mated: false,
+        deviation: {
+          plyIndex: i,
+          side: isUserPly ? 'user' : 'opponent',
+          fenBefore,
+          playedSan: played.san,
+          expectedUci,
+          expectedSan: uciToSan(fenBefore, expectedUci) ?? expectedUci,
+        },
+      }
+    }
+    // Lichess semantics: a mate the user delivers ends the line, even early.
+    if (isUserPly && chess.isCheckmate()) {
+      return { correct: true, deviation: null, mated: true }
+    }
+  }
+  return { correct: playedUci.length >= solutionUci.length, deviation: null, mated: false }
+}
+
 /** "mate in 2" / "gets mated in 3" / "+2.3" / "-0.5" — user's perspective. */
 function evalTextForUser(line: EngineLine, userColor: Color): string {
   if (line.mate !== undefined) {

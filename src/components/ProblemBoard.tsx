@@ -6,7 +6,8 @@ import { useClickToMove } from './useClickToMove'
 /**
  * Problems-mode board: same look and move handling as BoardPanel, but reading
  * from the problems store. Pieces are movable in the solve phase (the real
- * attempt) and in the reason phase (a throwaway scratchpad for trying lines);
+ * attempt — both sides, since the user plays the replies they predict too,
+ * ADR-0006) and in the reason phase (a throwaway scratchpad for trying lines);
  * the read phase is hands-off by design (PLAN §8.1).
  */
 export default function ProblemBoard() {

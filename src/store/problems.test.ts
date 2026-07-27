@@ -32,6 +32,19 @@ const P1: Problem = {
 }
 
 /**
+ * Fixture with a FREE choice of reply — P1 and P2 are both forcing, so neither
+ * can exercise a mispredicted defence. Setup 1...Kf8, then 2.Qd8+ and Black
+ * picks between Kf7 (authored) and Kg7, then 3.Qd7+.
+ */
+const P3: Problem = {
+  id: 'p3',
+  fen: '4k3/8/8/8/8/8/3Q4/4K3 b - - 0 1',
+  moves: ['e8f8', 'd2d8', 'f8f7', 'd8d7'],
+  rating: 1500,
+  themes: ['deflection'],
+}
+
+/**
  * Deflection two-mover with TWO mating moves at the end. Setup 1...Rb4??,
  * then 2.Ra8+ Rb8 (forced block) 3.Qxb8# — but 3.Rxb8# also mates, which
  * must count as correct (Lichess semantics).
@@ -236,6 +249,32 @@ describe('createProblemsStore', () => {
     expect(store.getState().status).toBe('solve')
   }
 
+  /** Solve phase on P3 — the fixture where Black's reply is a real choice. */
+  async function toSolveP3(): Promise<void> {
+    problems.theme = async (themeId: string): Promise<Problem[]> => {
+      problems.themeCalls.push(themeId)
+      return [P3]
+    }
+    store.getState().loadManifest()
+    await vi.advanceTimersByTimeAsync(0)
+    rigRandom('p1')
+    store.getState().startProblem()
+    await vi.advanceTimersByTimeAsync(600)
+    expect(store.getState().status).toBe('read')
+    store.getState().submitReadCheck({ materialDiff: 9, verdict: 'white_winning' })
+    await vi.advanceTimersByTimeAsync(0)
+    store.getState().submitReasoning()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().status).toBe('solve')
+  }
+
+  /** Play a line of UCI moves as the user (both sides — ADR-0006). */
+  function playLine(...ucis: string[]): void {
+    for (const uci of ucis) {
+      expect(store.getState().userMove(uci.slice(0, 2), uci.slice(2, 4))).toBe(true)
+    }
+  }
+
   it('loads the manifest once (idempotent)', async () => {
     store.getState().loadManifest()
     store.getState().loadManifest()
@@ -408,24 +447,24 @@ describe('createProblemsStore', () => {
     expect(st.gradeError).toBe('rate limited')
   })
 
-  it('solve happy path: user moves, opponent auto-replies, ends solved', async () => {
+  it('solve happy path: the whole line is played out, then committed', async () => {
     await toSolve()
 
-    // First solution move.
-    expect(store.getState().userMove('b2', 'b7')).toBe(true)
+    // The user plays their move AND the reply they expect (ADR-0006) — the
+    // store records plies and says nothing about them.
+    playLine('b2b7')
     let st = store.getState()
-    expect(st.status).toBe('opponent_replying')
-    expect(st.historySan).toEqual(['Kh8', 'Rb7+'])
-
-    // Opponent's forced reply animates in after ~700ms.
-    await vi.advanceTimersByTimeAsync(700)
-    st = store.getState()
     expect(st.status).toBe('solve')
+    expect(st.historySan).toEqual(['Kh8', 'Rb7+'])
+    expect(st.solveStep).toBe(2)
+
+    playLine('h8g8')
+    st = store.getState()
     expect(st.historySan).toEqual(['Kh8', 'Rb7+', 'Kg8'])
     expect(st.solveStep).toBe(3)
 
-    // Final solution move mates.
-    expect(store.getState().userMove('a1', 'a8')).toBe(true)
+    playLine('a1a8') // 3.Qa8#
+    store.getState().commitLine()
     await vi.advanceTimersByTimeAsync(0)
     st = store.getState()
     expect(st.status).toBe('solved')
@@ -438,7 +477,7 @@ describe('createProblemsStore', () => {
     expect(st.attemptedCount).toBe(1)
   })
 
-  it('rejects illegal, out-of-turn, and out-of-phase moves', async () => {
+  it('rejects illegal and out-of-phase moves', async () => {
     await toReason()
     // Not in the solve phase yet.
     expect(store.getState().userMove('b2', 'b7')).toBe(false)
@@ -446,7 +485,9 @@ describe('createProblemsStore', () => {
     store.getState().submitReasoning()
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getState().userMove('g1', 'g4')).toBe(false) // illegal king move
-    expect(store.getState().userMove('h8', 'h7')).toBe(false) // opponent's piece
+    // Both colours are the user's to move here, but only when it is that
+    // colour's turn — Black cannot move while White is to play.
+    expect(store.getState().userMove('h8', 'h7')).toBe(false)
     expect(store.getState().historySan).toEqual(['Kh8'])
   })
 
@@ -526,7 +567,80 @@ describe('createProblemsStore', () => {
     expect(store.getState().historySan).toEqual(['Kh8'])
   })
 
-  it('wrong move: stop-and-explain references the written reasoning, retry is fix-gated', async () => {
+  it('judges nothing until the line is committed (ADR-0006)', async () => {
+    await toSolve()
+
+    // 2.Rb7+ — right move, but the user is told nothing about it.
+    playLine('b2b7')
+    let st = store.getState()
+    expect(st.status).toBe('solve')
+    expect(st.notice).toBeNull()
+    expect(st.lineComplete).toBe(false)
+    expect(st.historySan).toEqual(['Kh8', 'Rb7+'])
+
+    // The reply is the user's to play too — no auto-reply, no timers.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(store.getState().historySan).toEqual(['Kh8', 'Rb7+'])
+    playLine('h8g8', 'a1a8') // ...Kg8 3.Qa8#
+    st = store.getState()
+    expect(st.status).toBe('solve') // still silent, even after mate
+    expect(st.notice).toBeNull()
+    expect(st.lineComplete).toBe(true)
+    expect(st.solveStep).toBe(4)
+
+    // Committing is the only checkpoint.
+    store.getState().commitLine()
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    expect(st.status).toBe('solved')
+    expect(st.hadStops).toBe(false)
+    expect(st.notice).toContain('clean line')
+    expect(st.notice).toContain('back-rank') // motif revealed only now
+    expect(st.solvedCount).toBe(1)
+    expect(st.attemptedCount).toBe(1)
+  })
+
+  it('commit is a no-op until the line is playable', async () => {
+    await toSolve()
+    store.getState().commitLine()
+    expect(store.getState().status).toBe('solve')
+
+    playLine('b2b7') // one ply of three
+    store.getState().commitLine()
+    expect(store.getState().status).toBe('solve')
+    expect(store.getState().lineComplete).toBe(false)
+  })
+
+  it('take back and clear rewind the line without judging it', async () => {
+    await toSolve()
+    playLine('b2b7', 'h8g8')
+    expect(store.getState().historySan).toEqual(['Kh8', 'Rb7+', 'Kg8'])
+
+    store.getState().undoLineMove()
+    let st = store.getState()
+    expect(st.historySan).toEqual(['Kh8', 'Rb7+'])
+    expect(st.solveStep).toBe(2)
+    expect(st.status).toBe('solve')
+
+    store.getState().clearLine()
+    st = store.getState()
+    expect(st.historySan).toEqual(['Kh8'])
+    expect(st.fen).toBe(SOLVE_FEN_1)
+    expect(st.solveStep).toBe(1)
+
+    // Neither control can rewind past the start of the attempt.
+    store.getState().undoLineMove()
+    store.getState().clearLine()
+    expect(store.getState().historySan).toEqual(['Kh8'])
+    expect(store.getState().fen).toBe(SOLVE_FEN_1)
+
+    // And the line replays cleanly from there.
+    playLine('b2b7', 'h8g8', 'a1a8')
+    store.getState().commitLine()
+    expect(store.getState().status).toBe('solved')
+  })
+
+  it('wrong line: the gate reveals nothing; the answer explains the failing move', async () => {
     await toReason()
     const REASONING = 'I think the queen is safe on a2 and I still mate later.'
     store.getState().setReasoning(REASONING)
@@ -534,11 +648,34 @@ describe('createProblemsStore', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getState().status).toBe('solve')
 
-    // Legal, not the solution, not mate: 2.Qa2??
-    expect(store.getState().userMove('a1', 'a2')).toBe(true)
+    // A wrong first move, played out to the end of the line: 2.Qa2?? Kg8 3.Qa3.
+    playLine('a1a2', 'h8h7', 'a2a3')
+    expect(store.getState().status).toBe('solve') // not judged on the way
+    store.getState().commitLine()
+
     let st = store.getState()
-    expect(st.status).toBe('showing_refutation')
+    // The gate: the line is called wrong, and that is all it says.
+    expect(st.status).toBe('wrong_move')
     expect(st.hadStops).toBe(true)
+    expect(st.answerRevealed).toBe(false)
+    expect(st.notice).toBeTruthy()
+    expect(st.notice).not.toContain('Rb7') // no solution move
+    expect(st.notice).not.toContain('Qa2') // not even which move failed
+    expect(st.stopExplanation).toBeNull()
+    expect(st.refutationSan).toEqual([])
+    // The whole line stays on the board, untouched.
+    expect(st.historySan).toEqual(['Kh8', 'Qa2', 'Kh7', 'Qa3'])
+    // No engine call at all, so not even the eval bar hints at the verdict.
+    expect(engine.analyze).not.toHaveBeenCalledWith(WRONG_FEN_1, expect.anything())
+    // Nothing pending: the answer waits on the user, not on a timer.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(store.getState().status).toBe('wrong_move')
+
+    // Ask for the answer: rewound to the ply that failed, then stop-and-explain.
+    store.getState().revealAnswer()
+    st = store.getState()
+    expect(st.status).toBe('showing_refutation')
+    expect(st.answerRevealed).toBe(true)
     expect(st.historySan).toEqual(['Kh8', 'Qa2'])
 
     // Analysis of the refuted position lands: explanation + punishment line.
@@ -547,6 +684,7 @@ describe('createProblemsStore', () => {
     expect(st.refutationSan).toEqual(['Kh7', 'Rb7+'])
     expect(st.stopExplanation).toBeTruthy()
     expect(st.stopExplanation).toContain(REASONING) // PLAN §8.1
+    expect(st.stopExplanation).toContain('Rb7')
     expect(st.evalCp).toBe(800)
 
     // Refutation animates move by move (~900ms steps).
@@ -566,7 +704,7 @@ describe('createProblemsStore', () => {
     expect(st.stopExplanation?.toLowerCase()).not.toContain('back-rank')
     expect(st.notice ?? '').not.toContain('back-rank')
 
-    // Retry rewinds to before the wrong move and demands the fix move.
+    // Retry rewinds to the failing ply and demands the fix move.
     store.getState().retryFromStop()
     await vi.advanceTimersByTimeAsync(0)
     st = store.getState()
@@ -584,31 +722,112 @@ describe('createProblemsStore', () => {
     expect(st.fen).toBe(SOLVE_FEN_1)
     expect(st.notice).toContain('Rb7')
 
-    // The fix move is accepted and the solve continues to the end.
-    expect(store.getState().userMove('b2', 'b7')).toBe(true)
-    st = store.getState()
-    expect(st.requiredFixUci).toBeNull()
-    expect(st.status).toBe('opponent_replying')
-    await vi.advanceTimersByTimeAsync(700)
-    expect(store.getState().userMove('a1', 'a8')).toBe(true)
+    // The fix move is accepted; the rest of the line still has to be played.
+    playLine('b2b7')
+    expect(store.getState().requiredFixUci).toBeNull()
+    playLine('h8g8', 'a1a8')
+    store.getState().commitLine()
+    await vi.advanceTimersByTimeAsync(0)
     st = store.getState()
     expect(st.status).toBe('solved')
     expect(st.hadStops).toBe(true)
+    expect(st.notice).toContain('stop-and-explain')
     expect(st.solvedCount).toBe(1)
     expect(st.attemptedCount).toBe(1) // counted once per problem, at the stop
+  })
+
+  it('wrong line: "try again" clears it with the answer still hidden and nothing gated', async () => {
+    await toSolve()
+
+    playLine('a1a2', 'h8h7', 'a2a3') // 2.Qa2?? Kh7 3.Qa3
+    store.getState().commitLine()
+    expect(store.getState().status).toBe('wrong_move')
+
+    store.getState().retryWrongMove()
+    let st = store.getState()
+    expect(st.status).toBe('solve')
+    expect(st.fen).toBe(SOLVE_FEN_1)
+    expect(st.historySan).toEqual(['Kh8'])
+    expect(st.solveStep).toBe(1)
+    // The answer was never shown, so nothing is gated and nothing is revealed.
+    expect(st.requiredFixUci).toBeNull()
+    expect(st.answerRevealed).toBe(false)
+    expect(st.stopExplanation).toBeNull()
+    expect(st.refutationSan).toEqual([])
+    expect(st.notice).not.toContain('Rb7')
+    expect(engine.analyze).not.toHaveBeenCalledWith(WRONG_FEN_1, expect.anything())
+
+    // A second wrong line is gated the same way — retries are never fix-gated.
+    playLine('a1a3', 'h8g8', 'a3a4')
+    store.getState().commitLine()
+    expect(store.getState().status).toBe('wrong_move')
+    store.getState().retryWrongMove()
+    expect(store.getState().historySan).toEqual(['Kh8'])
+
+    // Solving it yourself after a miss says exactly that.
+    playLine('b2b7', 'h8g8', 'a1a8')
+    store.getState().commitLine()
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    expect(st.status).toBe('solved')
+    expect(st.hadStops).toBe(true)
+    expect(st.answerRevealed).toBe(false)
+    expect(st.notice).toContain('without seeing the answer')
+    expect(st.solvedCount).toBe(1)
+    expect(st.attemptedCount).toBe(1)
+  })
+
+  it('a mispredicted reply fails the line and names the defence, with no refutation', async () => {
+    await toSolveP3()
+
+    // 2.Qd8+ is right, but Black is not obliged to play 2...Kg7.
+    playLine('d2d8', 'f8g7', 'd8d7')
+    expect(store.getState().status).toBe('solve')
+    store.getState().commitLine()
+
+    let st = store.getState()
+    expect(st.status).toBe('wrong_move')
+    expect(st.notice).not.toContain('Kf7') // the defence is not given away yet
+
+    store.getState().revealAnswer()
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    // Straight to stopped: an engine line after a bad defence is not a lesson.
+    expect(st.status).toBe('stopped')
+    expect(st.refutationSan).toEqual([])
+    expect(st.stopExplanation).toContain('Kf7')
+    expect(st.stopExplanation).toContain('Kg7')
+    expect(st.historySan).toEqual(['Kf8', 'Qd8+', 'Kg7'])
+    expect(st.attemptedCount).toBe(1)
+
+    // The retry restarts at the mispredicted ply and demands the real defence.
+    store.getState().retryFromStop()
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    expect(st.status).toBe('solve')
+    expect(st.historySan).toEqual(['Kf8', 'Qd8+'])
+    expect(st.requiredFixUci).toBe('f8f7')
+    expect(store.getState().userMove('f8', 'g7')).toBe(false) // bounced
+    playLine('f8f7', 'd8d7')
+    store.getState().commitLine()
+    expect(store.getState().status).toBe('solved')
   })
 
   it('an unlisted immediate mate counts as correct (Lichess semantics)', async () => {
     // P2 ends 3.Qxb8# — but 3.Rxb8# also mates and must be accepted.
     await toSolve('p2', { materialDiff: 6, verdict: 'white_winning' })
 
-    expect(store.getState().userMove('a1', 'a8')).toBe(true) // 2.Ra8+
-    await vi.advanceTimersByTimeAsync(700) // ...Rb8 (forced block)
+    playLine('a1a8', 'b4b8') // 2.Ra8+ ...Rb8 (the only legal block)
     expect(store.getState().historySan).toEqual(['Rb4', 'Ra8+', 'Rb8'])
 
-    expect(store.getState().userMove('a8', 'b8')).toBe(true) // 3.Rxb8#, not b2b8
+    playLine('a8b8') // 3.Rxb8#, not the authored b2b8
+    let st = store.getState()
+    expect(st.status).toBe('solve') // mate is still not announced by itself
+    expect(st.lineComplete).toBe(true) // …but the line is gradeable early
+
+    store.getState().commitLine()
     await vi.advanceTimersByTimeAsync(0)
-    const st = store.getState()
+    st = store.getState()
     expect(st.status).toBe('solved')
     expect(st.historySan).toEqual(['Rb4', 'Ra8+', 'Rb8', 'Rxb8#'])
     expect(st.solvedCount).toBe(1)
@@ -616,7 +835,9 @@ describe('createProblemsStore', () => {
 
   it('backToPicker mid-animation clears timers and leaves clean state', async () => {
     await toSolve()
-    store.getState().userMove('a1', 'a2') // wrong move → refutation pending
+    playLine('a1a2', 'h8h7', 'a2a3') // wrong line
+    store.getState().commitLine() // → gate
+    store.getState().revealAnswer() // → refutation pending
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getState().status).toBe('showing_refutation')
 

@@ -5,6 +5,22 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- feat(problems): the solve phase now grades a **committed line**, not single moves
+  (ADR-0006). You play the whole thing out — your moves *and* the replies you expect, with
+  take-back and clear while you do — and "Commit my line" is the only checkpoint. Nothing is
+  judged on the way: no move is confirmed, refuted or evaluated on its own, because
+  "correct" after move 1 is a hint. A failed line is named as failed **and nothing else** —
+  not even which ply broke it — on a new `wrong_move` status, and you pick: **"Try again?"**
+  clears the line with the answer still hidden (a genuine second attempt, not fix-gated), or
+  **"Show answer"** reveals it. The reveal is aimed at the ply that actually failed: one of
+  your own moves gets the existing stop-and-explain (refutation animated, your written
+  reasoning quoted), a mispredicted *reply* names the defence you missed with no refutation
+  animation, and either way the retry afterwards is fix-gated on that ply and resumes from
+  there. The solved message says which route you took, so self-correcting a miss reads
+  differently from a stop-and-explain. Opponent replies are no longer auto-played in the
+  solve phase (they cannot be, without leaking the verdict), so
+  `ProblemSessionStatus` drops `'opponent_replying'`. Owner decisions, 2026-07-27; PLAN.md
+  §8.1, CONTEXT.md "Committed line" / "Answer reveal"
 - feat(ui): click-to-move on both boards — click a piece to highlight it, then click the
   square it should land on, as an alternative to dragging. An illegal move does nothing at
   all: the board is unchanged and the piece is simply unselected. Clicking the highlighted

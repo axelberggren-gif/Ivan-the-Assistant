@@ -338,13 +338,29 @@ key, the phase still runs: the user self-checks against the revealed engine line
 degradation).
 
 **Phase 3 — Solve (execute the committed line).**
-The user plays their moves out; the opponent's forced replies animate. Anti-guessing rules:
-- An attempt is one continuous line — no exploratory piece-tapping.
-- A wrong move ends the attempt and triggers the existing **stop-and-explain** flow, with
-  the refutation animated and the coach's comment referencing the user's *written*
-  reasoning ("you said the knight was safe — here's why it isn't").
-- Retry follows the existing **fix-move** semantics: the correct move is required to
-  continue.
+The user plays out the **whole line** — their own moves *and* the replies they expect — and
+then commits it as one answer (owner decision, 2026-07-27; **ADR-0006**). Anti-guessing
+rules:
+- **Nothing is judged move by move.** No move is confirmed, refuted, evaluated or answered
+  on its own; "correct" after move 1 is a hint, and a wrong move must not spend the answer.
+  "Take back" / "Clear" are free while the line is being built.
+- **Committing is the only checkpoint.** "Commit my line" unlocks once the line is
+  gradeable (every authored ply played, or the game ended earlier — a mate found sooner
+  counts). The user's own moves follow Lichess matching (authored move, or any immediate
+  mate); a predicted reply must be the authored reply, since a line that only beats a
+  weaker defence proves nothing.
+- **A failed line is named as failed and nothing more** — not even which ply broke it. From
+  there the user chooses: **"Try again?"** clears the line with the answer still hidden (a
+  genuine second attempt, not fix-move-gated), or **"Show answer"** reveals it.
+- **The reveal is targeted at the ply that failed.** One of the user's own moves ⇒ the
+  existing **stop-and-explain** (rewind, refutation animated, comment referencing the
+  user's *written* reasoning — "you said the knight was safe, here's why it isn't"). A
+  mispredicted **reply** ⇒ the missed defence is named with no refutation animation, since
+  the engine's continuation after a bad defence teaches the wrong lesson.
+- Retry *after* the answer was shown follows the existing **fix-move** semantics: the
+  authored move for that ply is required, and the attempt resumes from there.
+- The solved message says which it was: a clean line, a self-corrected miss, or a
+  stop-and-explain.
 - Move matching follows Lichess semantics: the authored solution move is required (any
   immediate checkmate also counts as correct).
 

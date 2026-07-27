@@ -4,6 +4,7 @@ import type { EngineAnalysis, EngineLine } from '../types'
 import {
   engineLineSummaries,
   formatSanLine,
+  gradeLine,
   isSolutionMove,
   sanLineFromUci,
   uciToSan,
@@ -197,5 +198,76 @@ describe('engineLineSummaries', () => {
   it('respects an explicit max', () => {
     const a = analysis([line(10), line(5), line(0)])
     expect(engineLineSummaries(a, 'white', 1)).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// gradeLine — the whole committed line, judged in one go (ADR-0006)
+// ---------------------------------------------------------------------------
+
+describe('gradeLine', () => {
+  /**
+   * Back-rank two-mover from the solve position (White to move): the authored
+   * line is 2.Rb7+ Kg8 3.Qa8#. Even plies are the user's own moves, odd plies
+   * are the replies they predict.
+   */
+  const SOLVE_FEN = legalFen('7k/8/8/8/8/8/1R6/Q5K1 w - - 0 2')
+  const SOLUTION = ['b2b7', 'h8g8', 'a1a8']
+
+  it('accepts the authored line', () => {
+    const grade = gradeLine(SOLVE_FEN, SOLUTION, [...SOLUTION])
+    expect(grade.correct).toBe(true)
+    expect(grade.deviation).toBeNull()
+    expect(grade.mated).toBe(true)
+  })
+
+  it('is not correct until the whole line is played', () => {
+    expect(gradeLine(SOLVE_FEN, SOLUTION, []).correct).toBe(false)
+    const partial = gradeLine(SOLVE_FEN, SOLUTION, ['b2b7', 'h8g8'])
+    expect(partial.correct).toBe(false)
+    // Right so far is NOT a deviation — the caller must not report a failure.
+    expect(partial.deviation).toBeNull()
+  })
+
+  it('reports the user\'s own wrong move, with what was expected there', () => {
+    const grade = gradeLine(SOLVE_FEN, SOLUTION, ['a1a2', 'h8h7', 'a2a3'])
+    expect(grade.correct).toBe(false)
+    expect(grade.deviation).toMatchObject({
+      plyIndex: 0,
+      side: 'user',
+      playedSan: 'Qa2',
+      expectedUci: 'b2b7',
+      expectedSan: 'Rb7+',
+      fenBefore: SOLVE_FEN,
+    })
+  })
+
+  it('reports a mispredicted reply as the opponent\'s ply', () => {
+    // 2.Qd8+ and Black chooses: Kf7 (authored) or Kg7.
+    const fen = legalFen('5k2/8/8/8/8/8/3Q4/4K3 w - - 0 2')
+    const solution = ['d2d8', 'f8f7', 'd8d7']
+    const grade = gradeLine(fen, solution, ['d2d8', 'f8g7', 'd8d7'])
+    expect(grade.correct).toBe(false)
+    expect(grade.deviation).toMatchObject({
+      plyIndex: 1,
+      side: 'opponent',
+      playedSan: 'Kg7',
+      expectedSan: 'Kf7',
+    })
+  })
+
+  it('accepts an unlisted mate the user finds early (Lichess semantics)', () => {
+    // 2.Ra8+ Rb8 3.Rxb8# instead of the authored 3.Qxb8#.
+    const fen = legalFen('6k1/5ppp/8/8/1r6/8/1Q6/R5K1 w - - 1 2')
+    const grade = gradeLine(fen, ['a1a8', 'b4b8', 'b2b8'], ['a1a8', 'b4b8', 'a8b8'])
+    expect(grade.correct).toBe(true)
+    expect(grade.mated).toBe(true)
+  })
+
+  it('treats an illegal or unparseable line as not correct, not as a deviation', () => {
+    const grade = gradeLine(SOLVE_FEN, SOLUTION, ['b2b7', 'h8h1'])
+    expect(grade.correct).toBe(false)
+    expect(grade.deviation).toBeNull()
+    expect(gradeLine('not a fen', SOLUTION, [...SOLUTION]).correct).toBe(false)
   })
 })

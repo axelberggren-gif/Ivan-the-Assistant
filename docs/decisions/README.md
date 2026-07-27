@@ -34,3 +34,5 @@ blocks on a missing ADR.
 - [0002 — Adopt AI-first guardrails](0002-ai-first-guardrails.md)
 - [0003 — Problems-mode BYOK reasoning coach](0003-problems-mode-byok-reasoning-coach.md)
 - [0004 — Installable, offline-capable PWA](0004-installable-pwa.md)
+- [0005 — Deep analysis: a background engine queue over your real games](0005-background-game-analysis.md)
+- [0006 — Problems mode grades a committed line, not single moves](0006-commit-the-line-problem-solving.md)

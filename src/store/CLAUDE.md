@@ -28,11 +28,25 @@
   commits game by game, and owns a batch engine instance that is disposed when the run ends.
 
 - Problems-mode transitions follow PLAN.md §8.1: read check gates reasoning, reasoning
-  gates solving; a wrong solve move → stop-and-explain → fix-gated retry; the reasoning
-  coach failing (or no key) degrades to the engine-line reveal, never blocks the phase.
+  gates solving; the solve phase records plies for **both** sides and judges nothing until
+  `commitLine` (ADR-0006) → wrong ⇒ `wrong_move` (verdict only, nothing revealed) → either
+  `retryWrongMove` (clear the line, answer still hidden, **no** fix gate) or `revealAnswer`
+  → stop-and-explain at the failing ply → fix-gated retry; the reasoning coach failing (or
+  no key) degrades to the engine-line reveal, never blocks the phase.
 
 ## Recent changes
 
+- Commit-the-line solve loop in `problems.ts` (ADR-0006): `userMove` no longer filters by
+  side or judges anything — it appends a ply — and `undoLineMove` / `clearLine` /
+  `commitLine` drive the rest. `lineComplete` (state) gates the commit button;
+  `attemptFloor` + `attemptFloorSan` + `pendingFixUci` (closures) mark where the current
+  attempt starts, so take-back, clear and "Try again?" all stop there and a post-reveal fix
+  gate is re-armed when the user rewinds onto it. `commitLine` calls the pure `gradeLine`
+  and, on failure, parks the deviation in `pendingDeviation` while the `wrong_move` status
+  shows the verdict alone (no engine call, so not even the eval bar moves). `revealAnswer`
+  rewinds to the failing ply, replays it, and either runs stop-and-explain (the user's own
+  move) or names the missed defence (a mispredicted reply — no refutation animation);
+  `answerRevealed` is what the solved message reports via `sawAnswer`.
 - `analysis.ts` (+ `analysis.test.ts`) and `analysisContext.ts`: the background deep-analysis
   store — select → annotate → aggregate, with progress/ETA, cancel that keeps completed work,
   and a report rebuilt on every per-game commit so the panel fills in as the run proceeds.
