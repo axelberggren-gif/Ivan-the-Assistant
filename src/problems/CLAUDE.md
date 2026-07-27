@@ -30,6 +30,12 @@ problems store/UI. Phases per PLAN.md §8: read → reason → solve.
 
 ## Recent changes
 
+- Answer reveal is opt-in (CONTEXT.md, PLAN.md §8.1): `templates.ts` gains
+  `wrongMoveVerdict` (names a move wrong and reveals NOTHING else — no refutation, no
+  solution move; it is what the user reads while choosing), `correctMoveNotice`,
+  `tryAgainNotice`, and an optional `SolvedOpts.sawAnswer` so the solved message
+  distinguishes a self-corrected miss from a stop-and-explain. `wrongMoveExplanation`
+  is unchanged and is now only rendered once the user asks for the answer.
 - Loader degrades instead of dying: an entry that fails structural validation is **dropped**
   (never served, warned about on the console) and the file's remaining problems are
   returned; only a file with *no* usable entries throws. All-or-nothing validation meant a

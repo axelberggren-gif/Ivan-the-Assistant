@@ -125,6 +125,29 @@ function reasoningSnippet(reasoning: string): string {
   return `${compact.slice(0, REASONING_SNIPPET_MAX).trimEnd()}…`
 }
 
+/**
+ * The verdict-only line shown the moment a solve move is wrong, BEFORE
+ * anything is revealed (PLAN.md §8.1). It must name the move as wrong and
+ * nothing else — no refutation, no solution move, no eval — because the user
+ * is about to choose between another attempt and the answer.
+ */
+export function wrongMoveVerdict(): string {
+  return (
+    "That isn't the move this position needs. " +
+    'Take another shot at it, or show the answer and take the lesson.'
+  )
+}
+
+/** Confirmation after a correct solve move that is not the end of the line. */
+export function correctMoveNotice(playedSan: string): string {
+  return `Correct — ${playedSan}. Keep the line going.`
+}
+
+/** Shown on a retry the user took instead of seeing the answer. */
+export function tryAgainNotice(): string {
+  return 'Back to before your move, with the answer still hidden. Play the move you calculated.'
+}
+
 export interface WrongMoveOpts {
   playedSan: string
   expectedSan: string
@@ -187,13 +210,18 @@ function motifPhrase(names: string[]): string {
 }
 
 export interface SolvedOpts {
-  /** Did the attempt need one or more stop-and-explains along the way? */
+  /** Did the attempt go wrong at least once along the way? */
   hadStops: boolean
   /**
    * Curated motif display names (from `curatedMotifNames`). Revealed only
    * NOW, as the learning payoff — never before or during the attempt.
    */
   motifNames?: string[]
+  /**
+   * Did the user ask to see the answer after a wrong move (stop-and-explain),
+   * or did they retry with it still hidden? Only meaningful with `hadStops`.
+   */
+  sawAnswer?: boolean
 }
 
 /** Wrap-up when the whole solution line has been played out. */
@@ -201,6 +229,12 @@ export function solvedMessage(opts: SolvedOpts): string {
   const motifs = opts.motifNames ?? []
   if (opts.hadStops) {
     const reveal = motifs.length > 0 ? ` That was ${motifPhrase(motifs)}.` : ''
+    if (opts.sawAnswer === false) {
+      return (
+        `Solved — you went wrong once and then found it yourself, without seeing the answer.` +
+        `${reveal} Run another problem until the line comes first time.`
+      )
+    }
     return (
       `Solved — it took a stop-and-explain on the way, but you got there.${reveal} ` +
       `Run another problem until the line comes without a stop.`
@@ -243,5 +277,8 @@ export function selfCheckNotice(): string {
 
 /** Anti-guessing rule reminder for the solve phase (PLAN §8.1). */
 export function oneLineAttemptNotice(): string {
-  return 'One continuous line — commit to the moves you calculated. A wrong move ends the attempt.'
+  return (
+    'One continuous line — commit to the moves you calculated. A wrong move stops ' +
+    'the attempt: you choose then whether to try again or see the answer.'
+  )
 }

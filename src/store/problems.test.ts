@@ -537,9 +537,24 @@ describe('createProblemsStore', () => {
     // Legal, not the solution, not mate: 2.Qa2??
     expect(store.getState().userMove('a1', 'a2')).toBe(true)
     let st = store.getState()
-    expect(st.status).toBe('showing_refutation')
+    // The gate first: named as wrong, nothing revealed yet.
+    expect(st.status).toBe('wrong_move')
     expect(st.hadStops).toBe(true)
+    expect(st.answerRevealed).toBe(false)
     expect(st.historySan).toEqual(['Kh8', 'Qa2'])
+    expect(st.notice).toBeTruthy()
+    expect(st.notice).not.toContain('Rb7') // no solution move
+    expect(st.stopExplanation).toBeNull()
+    expect(st.refutationSan).toEqual([])
+    // Nothing pending: the answer waits on the user, not on a timer.
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(store.getState().status).toBe('wrong_move')
+
+    // Ask for the answer: now stop-and-explain runs as before.
+    store.getState().revealAnswer()
+    st = store.getState()
+    expect(st.status).toBe('showing_refutation')
+    expect(st.answerRevealed).toBe(true)
 
     // Analysis of the refuted position lands: explanation + punishment line.
     await vi.advanceTimersByTimeAsync(0)
@@ -598,6 +613,54 @@ describe('createProblemsStore', () => {
     expect(st.attemptedCount).toBe(1) // counted once per problem, at the stop
   })
 
+  it('wrong move: "try again" rewinds with the answer still hidden and no fix gate', async () => {
+    await toSolve()
+
+    // 2.Qa2?? → the gate.
+    expect(store.getState().userMove('a1', 'a2')).toBe(true)
+    expect(store.getState().status).toBe('wrong_move')
+
+    store.getState().retryWrongMove()
+    let st = store.getState()
+    expect(st.status).toBe('solve')
+    expect(st.fen).toBe(SOLVE_FEN_1)
+    expect(st.historySan).toEqual(['Kh8'])
+    // The lesson was never shown, so nothing is gated and nothing is revealed.
+    expect(st.requiredFixUci).toBeNull()
+    expect(st.answerRevealed).toBe(false)
+    expect(st.stopExplanation).toBeNull()
+    expect(st.refutationSan).toEqual([])
+    expect(st.notice).not.toContain('Rb7')
+    // The engine was never asked about the refuted position.
+    expect(engine.analyze).not.toHaveBeenCalledWith(WRONG_FEN_1, expect.anything())
+
+    // A second wrong try is gated the same way — retries are not fix-gated.
+    expect(store.getState().userMove('a1', 'a3')).toBe(true) // 2.Qa3??
+    expect(store.getState().status).toBe('wrong_move')
+    store.getState().retryWrongMove()
+    expect(store.getState().historySan).toEqual(['Kh8'])
+
+    // Solving it yourself after a miss says exactly that.
+    expect(store.getState().userMove('b2', 'b7')).toBe(true) // 2.Rb7+
+    await vi.advanceTimersByTimeAsync(700)
+    expect(store.getState().userMove('a1', 'a8')).toBe(true) // 3.Qa8#
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    expect(st.status).toBe('solved')
+    expect(st.hadStops).toBe(true)
+    expect(st.answerRevealed).toBe(false)
+    expect(st.notice).toContain('without seeing the answer')
+    expect(st.solvedCount).toBe(1)
+    expect(st.attemptedCount).toBe(1)
+  })
+
+  it('correct intermediate moves are confirmed as correct', async () => {
+    await toSolve()
+    expect(store.getState().userMove('b2', 'b7')).toBe(true) // 2.Rb7+
+    expect(store.getState().notice).toContain('Rb7')
+    expect(store.getState().notice).toContain('Correct')
+  })
+
   it('an unlisted immediate mate counts as correct (Lichess semantics)', async () => {
     // P2 ends 3.Qxb8# — but 3.Rxb8# also mates and must be accepted.
     await toSolve('p2', { materialDiff: 6, verdict: 'white_winning' })
@@ -616,7 +679,8 @@ describe('createProblemsStore', () => {
 
   it('backToPicker mid-animation clears timers and leaves clean state', async () => {
     await toSolve()
-    store.getState().userMove('a1', 'a2') // wrong move → refutation pending
+    store.getState().userMove('a1', 'a2') // wrong move → gate
+    store.getState().revealAnswer() // → refutation pending
     await vi.advanceTimersByTimeAsync(0)
     expect(store.getState().status).toBe('showing_refutation')
 

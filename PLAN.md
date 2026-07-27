@@ -340,11 +340,18 @@ degradation).
 **Phase 3 — Solve (execute the committed line).**
 The user plays their moves out; the opponent's forced replies animate. Anti-guessing rules:
 - An attempt is one continuous line — no exploratory piece-tapping.
-- A wrong move ends the attempt and triggers the existing **stop-and-explain** flow, with
-  the refutation animated and the coach's comment referencing the user's *written*
-  reasoning ("you said the knight was safe — here's why it isn't").
-- Retry follows the existing **fix-move** semantics: the correct move is required to
-  continue.
+- Every move is called: a correct one is confirmed as correct, a wrong one is named as
+  wrong *and nothing else* — no refutation, no solution move, no fresh eval.
+- A wrong move stops the attempt at that verdict and hands the user the choice (owner
+  decision, 2026-07-27): **"Try again?"** takes the move back with the answer still hidden
+  — a genuine second attempt, not fix-move-gated — or **"Show answer"** runs the existing
+  **stop-and-explain** flow, with the refutation animated and the coach's comment
+  referencing the user's *written* reasoning ("you said the knight was safe — here's why it
+  isn't"). Learning beats being told, so the answer is never spent by accident.
+- Retry *after* the answer was shown follows the existing **fix-move** semantics: the
+  correct move is required to continue.
+- The solved message says which it was: a clean line, a self-corrected miss, or a
+  stop-and-explain.
 - Move matching follows Lichess semantics: the authored solution move is required (any
   immediate checkmate also counts as correct).
 

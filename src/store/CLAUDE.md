@@ -28,11 +28,18 @@
   commits game by game, and owns a batch engine instance that is disposed when the run ends.
 
 - Problems-mode transitions follow PLAN.md §8.1: read check gates reasoning, reasoning
-  gates solving; a wrong solve move → stop-and-explain → fix-gated retry; the reasoning
-  coach failing (or no key) degrades to the engine-line reveal, never blocks the phase.
+  gates solving; a wrong solve move → `wrong_move` (verdict only, nothing revealed) →
+  either `retryWrongMove` (rewind, answer still hidden, **no** fix gate) or `revealAnswer`
+  → stop-and-explain → fix-gated retry; the reasoning coach failing (or no key) degrades to
+  the engine-line reveal, never blocks the phase.
 
 ## Recent changes
 
+- Wrong-move gate in `problems.ts`: the `wrong_move` status holds the wrong move at its
+  verdict (no engine call, so not even the eval bar moves) with the stop-and-explain inputs
+  parked in a `pendingWrong` closure. `retryWrongMove` rewinds without a fix gate;
+  `revealAnswer` sets `answerRevealed` and runs the unchanged stop-and-explain path, which
+  the solved message reports on via `sawAnswer`.
 - `analysis.ts` (+ `analysis.test.ts`) and `analysisContext.ts`: the background deep-analysis
   store — select → annotate → aggregate, with progress/ETA, cancel that keeps completed work,
   and a report rebuilt on every per-game commit so the panel fills in as the run proceeds.

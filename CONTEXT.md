@@ -55,6 +55,10 @@ The machine-checked situational-awareness gate before reasoning: material count 
 **Reasoning**:
 The user's free-text explanation of the winning idea and calculated line, written before any move is played. During this phase the board is a **scratch board**: the user can try candidate lines on it and paste the resulting notation into their notes, so they motivate the line rather than transcribe it. Scratch moves are throwaway — they never count as a solve attempt.
 
+**Answer reveal**:
+In problems mode, showing the user the solution to a problem: the refutation of their wrong move plus the solution move (i.e. stop-and-explain). It is never automatic — a wrong solve move is only *named* as wrong, and the user chooses between another attempt with the answer still hidden and revealing it. Retrying costs nothing; revealing ends that attempt's chance to find it unaided.
+_Avoid_: solution reveal, giving up
+
 **Reasoning coach**:
 The BYOK AI layer that compares the user's reasoning against Stockfish's analysis and reports what was right, missed, or wrong. It never calculates chess — engine output is ground truth.
 

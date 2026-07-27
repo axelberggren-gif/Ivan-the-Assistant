@@ -375,6 +375,12 @@ export type ProblemSessionStatus =
   | 'grading'
   | 'solve'
   | 'opponent_replying'
+  /**
+   * A wrong solve move has been played and named as wrong, but nothing has
+   * been revealed yet: the user chooses between another attempt and the
+   * answer (PLAN.md §8.1).
+   */
+  | 'wrong_move'
   | 'showing_refutation'
   | 'stopped'
   | 'solved'

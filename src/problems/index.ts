@@ -20,6 +20,9 @@ export {
 } from './solve'
 export {
   readCheckComment,
+  wrongMoveVerdict,
+  correctMoveNotice,
+  tryAgainNotice,
   wrongMoveExplanation,
   fixReminder,
   curatedMotifNames,

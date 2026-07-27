@@ -5,6 +5,15 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
+- feat(problems): a wrong solve move no longer spends the answer. Every move is now called:
+  a correct one is confirmed, a wrong one is named as wrong **and nothing else** — no
+  refutation, no solution move, no fresh eval — and the attempt pauses at that verdict on a
+  new `wrong_move` status. From there you pick: **"Try again?"** takes the move back with the
+  answer still hidden (a genuine second attempt, not fix-move-gated), or **"Show answer"**
+  runs the existing stop-and-explain, after which retry is fix-gated exactly as before. The
+  solved message says which route you took, so self-correcting without seeing the answer
+  reads differently from a stop-and-explain (owner decision, 2026-07-27; PLAN.md §8.1,
+  CONTEXT.md "Answer reveal")
 - feat(analysis): deep analysis — run your real games through Stockfish and the coach
   (PLAN.md §5.2a–5.2d, ADR-0005 now accepted). Milestone 5's unbuilt half: a new
   `src/analysis/` module annotates your chess.com games move by move, and the insights screen

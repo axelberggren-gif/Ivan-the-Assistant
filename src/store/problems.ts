@@ -25,6 +25,7 @@ import type {
 import {
   analysisCpWhite,
   checkRead,
+  correctMoveNotice,
   curatedMotifNames,
   engineLineSummaries,
   fixReminder,
@@ -32,8 +33,10 @@ import {
   isSolutionMove,
   sanLineFromUci,
   solvedMessage,
+  tryAgainNotice,
   uciToSan,
   wrongMoveExplanation,
+  wrongMoveVerdict,
 } from '../problems'
 
 // ---------------------------------------------------------------------------
@@ -85,6 +88,12 @@ export interface ProblemsState {
   refutationStep: number
   /** True once any wrong attempt happened on this problem. */
   hadStops: boolean
+  /**
+   * True once the user chose "show answer" after a wrong move on this problem.
+   * A retry taken with the answer still hidden leaves it false, which is what
+   * the solved message reports on.
+   */
+  answerRevealed: boolean
   /** Problems solved this session. */
   solvedCount: number
   /** Problems that reached a terminal state (solved or stopped) this session. */
@@ -120,6 +129,18 @@ export interface ProblemsState {
   commitExploreToReasoning: () => void
   /** Returns false for illegal/out-of-turn/fix-bounced moves (board snaps back). */
   userMove: (from: string, to: string, promotion?: string) => boolean
+  /**
+   * From the `wrong_move` gate: take the move back and try again with the
+   * answer still hidden. No fix-move gate — the user never saw the solution,
+   * so any move is a genuine second attempt.
+   */
+  retryWrongMove: () => void
+  /**
+   * From the `wrong_move` gate: give up on this attempt and see the answer —
+   * the stop-and-explain flow (refutation animated, solution named), after
+   * which retry is fix-move-gated as before.
+   */
+  revealAnswer: () => void
   retryFromStop: () => void
   backToPicker: () => void
   clearError: () => void
@@ -210,9 +231,14 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
 
   /** UCI/SAN moves applied since problem.fen (setup move included). */
   let playedUci: string[] = []
-  /** Snapshot before the wrong move, for fix-gated retry. */
+  /** Snapshot before the wrong move, for either kind of retry. */
   let preStopUci: string[] = []
   let preStopSan: string[] = []
+  /**
+   * The wrong move sitting at the `wrong_move` gate, held back until the user
+   * asks for the answer (everything stop-and-explain needs to run later).
+   */
+  let pendingWrong: { fenBefore: string; playedSan: string; expectedUci: string } | null = null
   /** attemptedCount is bumped once per problem, on the first terminal state. */
   let attemptCounted = false
 
@@ -279,6 +305,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       playedUci = []
       preStopUci = []
       preStopSan = []
+      pendingWrong = null
       attemptCounted = false
       set({
         status: 'loading',
@@ -301,6 +328,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         refutationSan: [],
         refutationStep: -1,
         hadStops: false,
+        answerRevealed: false,
         error: null,
         engineInitializing: true,
       })
@@ -494,6 +522,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       refutationSan: [],
       refutationStep: -1,
       hadStops: false,
+      answerRevealed: false,
       solvedCount: 0,
       attemptedCount: 0,
       error: null,
@@ -671,6 +700,9 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
               historySan: historyAfter,
               notice: solvedMessage({
                 hadStops: st.hadStops,
+                // A retry taken without seeing the answer is a different
+                // achievement from a stop-and-explain — say which it was.
+                sawAnswer: st.answerRevealed,
                 // The motif reveal is the learning payoff — shown ONLY here,
                 // never before or during the attempt (owner decision).
                 motifNames: curatedMotifNames(
@@ -689,7 +721,8 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
             status: 'opponent_replying',
             fen: chess.fen(),
             historySan: historyAfter,
-            notice: null,
+            // Say so when a move is right, not only when it is wrong.
+            notice: correctMoveNotice(mv.san),
             requiredFixUci: null,
             solveStep: st.solveStep + 1,
           })
@@ -714,20 +747,70 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         }
 
         // WRONG MOVE (legal, not the solution, not mate): keep it on the board
-        // and run stop-and-explain, referencing the written reasoning.
+        // and say only that it is wrong. Nothing is revealed here — no
+        // refutation, no solution move, not even a fresh eval — because the
+        // user now chooses between another attempt (retryWrongMove) and the
+        // answer (revealAnswer, which runs stop-and-explain). PLAN.md §8.1.
         preStopUci = playedUci
         preStopSan = st.historySan
+        pendingWrong = { fenBefore, playedSan: mv.san, expectedUci }
         set({
-          status: 'showing_refutation',
+          status: 'wrong_move',
           fen: chess.fen(),
           historySan: historyAfter,
           hadStops: true,
-          notice: null,
+          notice: wrongMoveVerdict(),
+          stopExplanation: null,
           refutationSan: [],
           refutationStep: -1,
         })
-        void startStop(myEpoch, fenBefore, mv.san, expectedUci)
         return true
+      },
+
+      retryWrongMove: () => {
+        const st = get()
+        if (st.status !== 'wrong_move' || !st.problem) return
+        clearTimers()
+        epoch++
+        // Rewind to the position before the wrong move (rebuilt from the
+        // problem FEN so the internal game stays consistent).
+        try {
+          chess.load(st.problem.fen)
+          for (const uci of preStopUci) chess.move(uciParts(uci))
+        } catch (e) {
+          set({ error: errMsg(e, 'Could not rewind the position') })
+          return
+        }
+        playedUci = [...preStopUci]
+        pendingWrong = null
+        set({
+          status: 'solve',
+          fen: chess.fen(),
+          historySan: [...preStopSan],
+          // No fix gate: the solution was never shown, so this is a real
+          // second attempt rather than the "play the lesson" retry.
+          requiredFixUci: null,
+          notice: tryAgainNotice(),
+          stopExplanation: null,
+          refutationSan: [],
+          refutationStep: -1,
+        })
+      },
+
+      revealAnswer: () => {
+        const st = get()
+        if (st.status !== 'wrong_move' || !pendingWrong) return
+        const { fenBefore, playedSan, expectedUci } = pendingWrong
+        pendingWrong = null
+        const myEpoch = epoch
+        set({
+          status: 'showing_refutation',
+          notice: null,
+          answerRevealed: true,
+          refutationSan: [],
+          refutationStep: -1,
+        })
+        void startStop(myEpoch, fenBefore, playedSan, expectedUci)
       },
 
       retryFromStop: () => {
@@ -771,6 +854,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         playedUci = []
         preStopUci = []
         preStopSan = []
+        pendingWrong = null
         attemptCounted = false
         set({
           status: 'picking',
@@ -794,6 +878,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           refutationSan: [],
           refutationStep: -1,
           hadStops: false,
+          answerRevealed: false,
           error: null,
           engineInitializing: false,
         })

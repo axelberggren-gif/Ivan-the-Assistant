@@ -6,15 +6,17 @@ import { oneLineAttemptNotice } from '../problems'
 const STATUS_TEXT: Partial<Record<ProblemSessionStatus, string>> = {
   solve: 'Your move — play your calculated line',
   opponent_replying: 'Opponent is replying…',
+  wrong_move: 'Not correct',
   showing_refutation: 'Watch the refutation…',
   stopped: 'Attempt stopped',
   solved: 'Solved',
 }
 
 /**
- * Phase 3 — Solve (PLAN §8.1): execute the committed line. One continuous
- * attempt, stop-and-explain on a wrong move, fix-move-gated retry, engine
- * lines revealed for self-checking.
+ * Phase 3 — Solve (PLAN §8.1): execute the committed line. A wrong move is
+ * named as wrong first and nothing more; from there the user picks another
+ * attempt or the answer (stop-and-explain, then fix-move-gated retry). Engine
+ * lines are revealed for self-checking once the attempt is over.
  */
 export default function SolvePanel() {
   const status = useProblems((s) => s.status)
@@ -25,6 +27,8 @@ export default function SolvePanel() {
   const gradeError = useProblems((s) => s.gradeError)
   const engineLines = useProblems((s) => s.engineLines)
   const stopExplanation = useProblems((s) => s.stopExplanation)
+  const retryWrongMove = useProblems((s) => s.retryWrongMove)
+  const revealAnswer = useProblems((s) => s.revealAnswer)
   const retryFromStop = useProblems((s) => s.retryFromStop)
   const nextProblem = useProblems((s) => s.nextProblem)
   const backToPicker = useProblems((s) => s.backToPicker)
@@ -60,7 +64,26 @@ export default function SolvePanel() {
 
       {solving && <p className="solve-reminder">{oneLineAttemptNotice()}</p>}
 
-      {notice && <div className="coach-notice">{notice}</div>}
+      {notice && (
+        <div className={`coach-notice${status === 'wrong_move' ? ' coach-notice-wrong' : ''}`}>
+          {notice}
+        </div>
+      )}
+
+      {/*
+        The wrong-move gate: the verdict is above, the answer is not. The user
+        chooses another attempt or the lesson (PLAN §8.1).
+      */}
+      {status === 'wrong_move' && (
+        <div className="problem-actions">
+          <button type="button" className="btn btn-primary" onClick={retryWrongMove}>
+            Try again?
+          </button>
+          <button type="button" className="btn" onClick={revealAnswer}>
+            Show answer
+          </button>
+        </div>
+      )}
 
       {status === 'stopped' && stopExplanation && (
         <div className="problem-stop">
