@@ -55,8 +55,12 @@ The machine-checked situational-awareness gate before reasoning: material count 
 **Reasoning**:
 The user's free-text explanation of the winning idea and calculated line, written before any move is played. During this phase the board is a **scratch board**: the user can try candidate lines on it and paste the resulting notation into their notes, so they motivate the line rather than transcribe it. Scratch moves are throwaway — they never count as a solve attempt.
 
+**Committed line**:
+The full move sequence the user plays out in a problem's solve phase — their own moves *and* the replies they predict — submitted as one answer. Nothing is judged until it is committed: no single move is ever confirmed or refuted on its own (ADR-0006). A predicted reply that the opponent doesn't have to play fails the line just as a wrong move of the user's own does.
+_Avoid_: attempt (that's the whole try, including retries), guess
+
 **Answer reveal**:
-In problems mode, showing the user the solution to a problem: the refutation of their wrong move plus the solution move (i.e. stop-and-explain). It is never automatic — a wrong solve move is only *named* as wrong, and the user chooses between another attempt with the answer still hidden and revealing it. Retrying costs nothing; revealing ends that attempt's chance to find it unaided.
+In problems mode, showing the user the solution to a problem: the refutation of the move that failed plus the solution move (i.e. stop-and-explain), or — when the line failed on a predicted reply — the defence they missed. It is never automatic: a failed committed line is only *named* as failed, and the user chooses between another attempt with the answer still hidden and revealing it. Retrying costs nothing; revealing ends that attempt's chance to find it unaided.
 _Avoid_: solution reveal, giving up
 
 **Reasoning coach**:

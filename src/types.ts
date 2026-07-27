@@ -373,12 +373,14 @@ export type ProblemSessionStatus =
   | 'read'
   | 'reason'
   | 'grading'
-  | 'solve'
-  | 'opponent_replying'
   /**
-   * A wrong solve move has been played and named as wrong, but nothing has
-   * been revealed yet: the user chooses between another attempt and the
-   * answer (PLAN.md §8.1).
+   * Building the line: the user plays their moves and the replies they expect,
+   * and nothing is judged until they commit it (ADR-0006).
+   */
+  | 'solve'
+  /**
+   * A committed line has been called wrong, but nothing has been revealed yet:
+   * the user chooses between another attempt and the answer (PLAN.md §8.1).
    */
   | 'wrong_move'
   | 'showing_refutation'

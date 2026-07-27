@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { ProblemSessionStatus } from '../types'
 import { useProblems } from '../store/problemsContext'
-import { oneLineAttemptNotice } from '../problems'
+import { buildingLineNotice, formatSanLine, oneLineAttemptNotice } from '../problems'
 
 const STATUS_TEXT: Partial<Record<ProblemSessionStatus, string>> = {
-  solve: 'Your move — play your calculated line',
-  opponent_replying: 'Opponent is replying…',
   wrong_move: 'Not correct',
   showing_refutation: 'Watch the refutation…',
   stopped: 'Attempt stopped',
@@ -13,20 +11,28 @@ const STATUS_TEXT: Partial<Record<ProblemSessionStatus, string>> = {
 }
 
 /**
- * Phase 3 — Solve (PLAN §8.1): execute the committed line. A wrong move is
- * named as wrong first and nothing more; from there the user picks another
- * attempt or the answer (stop-and-explain, then fix-move-gated retry). Engine
- * lines are revealed for self-checking once the attempt is over.
+ * Phase 3 — Solve (PLAN §8.1): play the whole line out — the user's moves AND
+ * the replies they predicted — and commit it as one answer. Nothing is judged
+ * until the commit; a failed line is then named as failed and nothing more,
+ * and the user picks another attempt or the answer (stop-and-explain, then
+ * fix-move-gated retry). Engine lines are revealed once the attempt is over.
  */
 export default function SolvePanel() {
   const status = useProblems((s) => s.status)
   const problem = useProblems((s) => s.problem)
+  const solveFen = useProblems((s) => s.solveFen)
+  const historySan = useProblems((s) => s.historySan)
   const solveStep = useProblems((s) => s.solveStep)
+  const lineComplete = useProblems((s) => s.lineComplete)
+  const userColor = useProblems((s) => s.userColor)
   const notice = useProblems((s) => s.notice)
   const feedback = useProblems((s) => s.feedback)
   const gradeError = useProblems((s) => s.gradeError)
   const engineLines = useProblems((s) => s.engineLines)
   const stopExplanation = useProblems((s) => s.stopExplanation)
+  const undoLineMove = useProblems((s) => s.undoLineMove)
+  const clearLine = useProblems((s) => s.clearLine)
+  const commitLine = useProblems((s) => s.commitLine)
   const retryWrongMove = useProblems((s) => s.retryWrongMove)
   const revealAnswer = useProblems((s) => s.revealAnswer)
   const retryFromStop = useProblems((s) => s.retryFromStop)
@@ -40,24 +46,34 @@ export default function SolvePanel() {
     if (status === 'stopped' || status === 'solved') setLinesOpen(true)
   }, [status])
 
-  const busy = status === 'opponent_replying'
-  const solving = status === 'solve' || status === 'opponent_replying'
+  const solving = status === 'solve'
+  // While the line is being built, historySan is the setup move plus the line.
+  const lineSan = historySan.slice(1)
+  const hasLine = lineSan.length > 0
+  const showLine = status === 'solve' || status === 'wrong_move'
 
-  // problem.moves = setup move + alternating user/opponent moves, so the user
-  // owns half of them; solveStep is the index of the NEXT expected move.
-  const totalUserMoves = problem ? problem.moves.length / 2 : 0
-  const userMoveNumber = Math.min(totalUserMoves, Math.ceil(solveStep / 2))
+  // problem.moves = setup move + alternating user/reply plies, and solveStep is
+  // the index of the next one — odd indices are the user's own moves.
+  const totalPlies = problem ? problem.moves.length - 1 : 0
+  const yourTurn = solveStep % 2 === 1
 
   return (
     <div className="panel solve-panel">
       <div className="panel-title">Solve</div>
 
       <div className={`status-line problem-status-${status}`}>
-        {busy && <span className="spinner" aria-hidden="true" />}
-        <span>{STATUS_TEXT[status] ?? ''}</span>
+        <span>
+          {solving
+            ? lineComplete
+              ? 'Line complete — commit it when you are ready'
+              : yourTurn
+                ? 'Your move — play the line you calculated'
+                : `Their reply — play the ${userColor === 'white' ? 'Black' : 'White'} move you expect`
+            : (STATUS_TEXT[status] ?? '')}
+        </span>
         {solving && problem && (
           <span className="solve-progress">
-            Your move {userMoveNumber} of {totalUserMoves}
+            Move {Math.min(totalPlies, lineSan.length + (lineComplete ? 0 : 1))} of {totalPlies}
           </span>
         )}
       </div>
@@ -71,8 +87,58 @@ export default function SolvePanel() {
       )}
 
       {/*
-        The wrong-move gate: the verdict is above, the answer is not. The user
-        chooses another attempt or the lesson (PLAN §8.1).
+        The line under construction (both sides). Nothing here is judged until
+        "Commit my line" — that is the only checkpoint (PLAN §8.1).
+      */}
+      {showLine && (
+        <div className="explore-box">
+          <div className="explore-header">
+            <span className="explore-title">Your line</span>
+            {/* At the gate the line is frozen — editing it is what "Try again?" is for. */}
+            {solving && (
+              <div className="explore-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-small"
+                  onClick={undoLineMove}
+                  disabled={!hasLine}
+                >
+                  Take back
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-small"
+                  onClick={clearLine}
+                  disabled={!hasLine}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+          </div>
+          {hasLine ? (
+            <div className="explore-line" aria-live="polite">
+              {solveFen ? formatSanLine(solveFen, lineSan) : lineSan.join(' ')}
+            </div>
+          ) : (
+            <p className="explore-empty">{buildingLineNotice()}</p>
+          )}
+          {solving && (
+            <button
+              type="button"
+              className="btn btn-primary explore-commit"
+              onClick={commitLine}
+              disabled={!lineComplete}
+            >
+              {lineComplete ? 'Commit my line' : 'Commit my line (play it out first)'}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/*
+        The wrong-line gate: the verdict is above, the answer is not — not even
+        which move failed. The user chooses another attempt or the lesson.
       */}
       {status === 'wrong_move' && (
         <div className="problem-actions">

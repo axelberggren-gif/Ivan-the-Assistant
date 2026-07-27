@@ -25,18 +25,20 @@ import type {
 import {
   analysisCpWhite,
   checkRead,
-  correctMoveNotice,
   curatedMotifNames,
   engineLineSummaries,
   fixReminder,
   formatSanLine,
+  gradeLine,
   isSolutionMove,
   sanLineFromUci,
   solvedMessage,
   tryAgainNotice,
   uciToSan,
+  wrongDefenceExplanation,
+  wrongLineVerdict,
   wrongMoveExplanation,
-  wrongMoveVerdict,
+  type LineDeviation,
 } from '../problems'
 
 // ---------------------------------------------------------------------------
@@ -74,8 +76,16 @@ export interface ProblemsState {
   /** User-readable grading failure — the phase degrades to engine lines. */
   gradeError: string | null
   llmAvailable: boolean
-  /** Index into problem.moves of the NEXT expected move. */
+  /**
+   * How many plies of this problem have been played, i.e. the index into
+   * problem.moves of the NEXT expected ply (1 = the solve position).
+   */
   solveStep: number
+  /**
+   * True when the line played out from the solve position can be graded: every
+   * authored ply is on the board, or the game ended. Gates "Commit my line".
+   */
+  lineComplete: boolean
   /** When set, the next user move must be this UCI (fix-move-gated retry). */
   requiredFixUci: string | null
   /** Transient coach note: fix reminder or solved message. */
@@ -127,17 +137,33 @@ export interface ProblemsState {
   resetExplore: () => void
   /** Paste the scratch line (as numbered SAN) into `reasoning`, then clear it. */
   commitExploreToReasoning: () => void
-  /** Returns false for illegal/out-of-turn/fix-bounced moves (board snaps back). */
-  userMove: (from: string, to: string, promotion?: string) => boolean
   /**
-   * From the `wrong_move` gate: take the move back and try again with the
-   * answer still hidden. No fix-move gate — the user never saw the solution,
-   * so any move is a genuine second attempt.
+   * Play the next ply of the line — the user's own move OR the reply they
+   * expect, since they play both sides here. Nothing is judged: the move just
+   * joins the line. Returns false for illegal/fix-bounced moves (board snaps
+   * back).
+   */
+  userMove: (from: string, to: string, promotion?: string) => boolean
+  /** Take back the last ply of the line (never past the attempt's start). */
+  undoLineMove: () => void
+  /** Clear the line back to the start of this attempt. */
+  clearLine: () => void
+  /**
+   * Submit the line as the answer — the ONLY point at which anything is
+   * checked (PLAN.md §8.1). Correct ⇒ solved; wrong ⇒ the `wrong_move` gate.
+   * No-op until `lineComplete`.
+   */
+  commitLine: () => void
+  /**
+   * From the `wrong_move` gate: clear the line and try again with the answer
+   * still hidden. No fix-move gate — the user never saw the solution, so this
+   * is a genuine second attempt.
    */
   retryWrongMove: () => void
   /**
    * From the `wrong_move` gate: give up on this attempt and see the answer —
-   * the stop-and-explain flow (refutation animated, solution named), after
+   * stop-and-explain at the ply that actually failed (refutation animated for
+   * the user's own move, the missed defence named when it was the reply), after
    * which retry is fix-move-gated as before.
    */
   revealAnswer: () => void
@@ -156,7 +182,6 @@ export type ProblemsStore = StoreApi<ProblemsState>
 
 const START_FEN = new Chess().fen()
 const SETUP_MOVE_MS = 600
-const OPPONENT_MOVE_MS = 700
 const REFUTATION_MOVE_MS = 900
 /** How many plies of the engine's punishment line to animate on a stop. */
 const REFUTATION_PLIES = 4
@@ -231,20 +256,57 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
 
   /** UCI/SAN moves applied since problem.fen (setup move included). */
   let playedUci: string[] = []
-  /** Snapshot before the wrong move, for either kind of retry. */
+  /** Snapshot before the failing ply, for the fix-gated retry after a reveal. */
   let preStopUci: string[] = []
   let preStopSan: string[] = []
   /**
-   * The wrong move sitting at the `wrong_move` gate, held back until the user
-   * asks for the answer (everything stop-and-explain needs to run later).
+   * Where the current attempt starts: `playedUci.length` at that point (1 is
+   * the solve position, more after a post-reveal retry) plus the matching SAN
+   * history and the fix move the attempt is gated on, if any. "Take back",
+   * "Clear" and "Try again?" all stop here.
    */
-  let pendingWrong: { fenBefore: string; playedSan: string; expectedUci: string } | null = null
+  let attemptFloor = 1
+  let attemptFloorSan: string[] = []
+  let pendingFixUci: string | null = null
+  /**
+   * The ply where the committed line left the solution, held back at the
+   * `wrong_move` gate until the user asks for the answer.
+   */
+  let pendingDeviation: LineDeviation | null = null
   /** attemptedCount is bumped once per problem, on the first terminal state. */
   let attemptCounted = false
 
   function clearTimers(): void {
     for (const t of timers) clearTimeout(t)
     timers = []
+  }
+
+  /** Record where the current attempt starts (see `attemptFloor`). */
+  function setFloor(length: number, san: string[], fixUci: string | null): void {
+    attemptFloor = length
+    attemptFloorSan = [...san]
+    pendingFixUci = fixUci
+  }
+
+  /**
+   * Is the line gradeable? Either every authored ply is on the board, or the
+   * game ended early (a mate found sooner, or the user's line getting mated).
+   */
+  function lineIsComplete(problem: Problem): boolean {
+    return playedUci.length >= problem.moves.length || chess.isGameOver()
+  }
+
+  /** Rebuild the board at the attempt floor; false if the rebuild failed. */
+  function rewindToFloor(problem: Problem): boolean {
+    const prefix = playedUci.slice(0, attemptFloor)
+    try {
+      chess.load(problem.fen)
+      for (const uci of prefix) chess.move(uciParts(uci))
+    } catch {
+      return false
+    }
+    playedUci = [...prefix]
+    return true
   }
 
   function analyzeCached(fen: string): Promise<EngineAnalysis> {
@@ -305,7 +367,8 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       playedUci = []
       preStopUci = []
       preStopSan = []
-      pendingWrong = null
+      pendingDeviation = null
+      setFloor(1, [], null)
       attemptCounted = false
       set({
         status: 'loading',
@@ -322,6 +385,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         gradeError: null,
         llmAvailable: deps.llm.hasKey(),
         solveStep: 0,
+        lineComplete: false,
         requiredFixUci: null,
         notice: null,
         stopExplanation: null,
@@ -354,6 +418,8 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           try {
             const mv = chess.move(uciParts(problem.moves[0]))
             playedUci = [problem.moves[0]]
+            // Every retry on this problem rewinds to here: the solve position.
+            setFloor(playedUci.length, [mv.san], null)
             const solveFen = chess.fen()
             const userColor: Color = chess.turn() === 'w' ? 'white' : 'black'
             set({
@@ -516,6 +582,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       gradeError: null,
       llmAvailable: deps.llm.hasKey(),
       solveStep: 0,
+      lineComplete: false,
       requiredFixUci: null,
       notice: null,
       stopExplanation: null,
@@ -587,7 +654,14 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         // Empty reasoning is allowed (the user self-checks against the engine
         // lines); there is nothing to grade, so skip the LLM either way.
         if (!llmAvailable || !st.reasoning.trim()) {
-          set({ status: 'solve', solveStep: 1, llmAvailable, fen: st.solveFen, exploreSan: [] })
+          set({
+            status: 'solve',
+            solveStep: 1,
+            lineComplete: false,
+            llmAvailable,
+            fen: st.solveFen,
+            exploreSan: [],
+          })
           return
         }
         set({ status: 'grading', llmAvailable, fen: st.solveFen, exploreSan: [] })
@@ -602,13 +676,14 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
               engineLines,
             })
             if (epoch !== myEpoch) return
-            set({ status: 'solve', solveStep: 1, feedback })
+            set({ status: 'solve', solveStep: 1, lineComplete: false, feedback })
           } catch (e) {
             if (epoch !== myEpoch) return
             // Degrade gracefully: the engine lines are already on screen.
             set({
               status: 'solve',
               solveStep: 1,
+              lineComplete: false,
               gradeError: errMsg(e, 'The reasoning coach is unavailable — check yourself against the engine lines'),
             })
           }
@@ -660,19 +735,20 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       userMove: (from: string, to: string, promotion?: string): boolean => {
         const st = get()
         if (st.status !== 'solve' || !st.problem) return false
-        const sideToMove: Color = chess.turn() === 'w' ? 'white' : 'black'
-        if (sideToMove !== st.userColor) return false
 
         const fenBefore = chess.fen()
         let mv
         try {
+          // BOTH sides are played by the user here: they play their move and
+          // the reply they expect, proving they saw it in advance (PLAN §8.1).
           mv = chess.move({ from, to, promotion: promotion ?? 'q' })
         } catch {
           return false // illegal — board snaps back
         }
         const moveUci = mv.from + mv.to + (mv.promotion ?? '')
 
-        // Fix-move gate: after a stop, the lesson must be played first.
+        // Fix-move gate: after the answer was shown, the lesson move (the
+        // user's or the defence they got wrong) must be played first.
         if (st.requiredFixUci && !isSolutionMove(fenBefore, moveUci, st.requiredFixUci)) {
           chess.undo()
           const fixSan = uciToSan(fenBefore, st.requiredFixUci) ?? st.requiredFixUci
@@ -680,91 +756,104 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           return false
         }
 
-        const expectedUci = st.problem.moves[st.solveStep]
+        // No judgement here — nothing is checked until the line is committed.
+        playedUci = [...playedUci, moveUci]
+        set({
+          fen: chess.fen(),
+          historySan: [...st.historySan, mv.san],
+          solveStep: playedUci.length,
+          requiredFixUci: null,
+          notice: null,
+          lineComplete: lineIsComplete(st.problem),
+        })
+        return true
+      },
+
+      undoLineMove: () => {
+        const st = get()
+        if (st.status !== 'solve' || !st.problem) return
+        if (playedUci.length <= attemptFloor) return
+        chess.undo()
+        playedUci = playedUci.slice(0, -1)
+        set({
+          fen: chess.fen(),
+          historySan: st.historySan.slice(0, -1),
+          solveStep: playedUci.length,
+          // Back at the start of a post-reveal retry, the fix gate is back too.
+          requiredFixUci: playedUci.length === attemptFloor ? pendingFixUci : null,
+          notice: null,
+          lineComplete: lineIsComplete(st.problem),
+        })
+      },
+
+      clearLine: () => {
+        const st = get()
+        if (st.status !== 'solve' || !st.problem) return
+        if (playedUci.length <= attemptFloor) return
+        if (!rewindToFloor(st.problem)) {
+          set({ error: 'Could not rewind the position' })
+          return
+        }
+        set({
+          fen: chess.fen(),
+          historySan: [...attemptFloorSan],
+          solveStep: playedUci.length,
+          requiredFixUci: pendingFixUci,
+          notice: null,
+          lineComplete: lineIsComplete(st.problem),
+        })
+      },
+
+      commitLine: () => {
+        const st = get()
+        if (st.status !== 'solve' || !st.problem || !st.solveFen) return
+        // The button is disabled until the line is playable; belt and braces.
+        if (!st.lineComplete) return
         const myEpoch = epoch
-        const historyAfter = [...st.historySan, mv.san]
+        const grade = gradeLine(st.solveFen, st.problem.moves.slice(1), playedUci.slice(1))
 
-        // Lichess semantics: the authored move is required, but any immediate
-        // checkmate also counts as correct.
-        const correct =
-          isSolutionMove(fenBefore, moveUci, expectedUci) || chess.isCheckmate()
-
-        if (correct) {
-          playedUci = [...playedUci, moveUci]
-          const isLast = st.solveStep >= st.problem.moves.length - 1
-          if (isLast || chess.isCheckmate()) {
-            countAttempt()
-            set({
-              status: 'solved',
-              fen: chess.fen(),
-              historySan: historyAfter,
-              notice: solvedMessage({
-                hadStops: st.hadStops,
-                // A retry taken without seeing the answer is a different
-                // achievement from a stop-and-explain — say which it was.
-                sawAnswer: st.answerRevealed,
-                // The motif reveal is the learning payoff — shown ONLY here,
-                // never before or during the attempt (owner decision).
-                motifNames: curatedMotifNames(
-                  st.problem.themes,
-                  get().manifest?.themes ?? [],
-                ),
-              }),
-              requiredFixUci: null,
-              solvedCount: get().solvedCount + 1,
-            })
-            refreshEval(myEpoch)
-            return true
-          }
-          const replyUci = st.problem.moves[st.solveStep + 1]
+        if (grade.correct) {
+          countAttempt()
           set({
-            status: 'opponent_replying',
-            fen: chess.fen(),
-            historySan: historyAfter,
-            // Say so when a move is right, not only when it is wrong.
-            notice: correctMoveNotice(mv.san),
+            status: 'solved',
+            notice: solvedMessage({
+              hadStops: st.hadStops,
+              // A retry taken without seeing the answer is a different
+              // achievement from a stop-and-explain — say which it was.
+              sawAnswer: st.answerRevealed,
+              // The motif reveal is the learning payoff — shown ONLY here,
+              // never before or during the attempt (owner decision).
+              motifNames: curatedMotifNames(st.problem.themes, get().manifest?.themes ?? []),
+            }),
             requiredFixUci: null,
-            solveStep: st.solveStep + 1,
+            lineComplete: false,
+            solvedCount: get().solvedCount + 1,
           })
-          const t = setTimeout(() => {
-            if (epoch !== myEpoch) return
-            try {
-              const reply = chess.move(uciParts(replyUci))
-              playedUci = [...playedUci, replyUci]
-              set({
-                status: 'solve',
-                fen: chess.fen(),
-                historySan: [...get().historySan, reply.san],
-                solveStep: get().solveStep + 1,
-              })
-              prefetch(chess.fen())
-            } catch (e) {
-              set({ status: 'solve', error: errMsg(e, 'This problem has an invalid reply move') })
-            }
-          }, OPPONENT_MOVE_MS)
-          timers.push(t)
-          return true
+          refreshEval(myEpoch)
+          return
         }
 
-        // WRONG MOVE (legal, not the solution, not mate): keep it on the board
-        // and say only that it is wrong. Nothing is revealed here — no
-        // refutation, no solution move, not even a fresh eval — because the
-        // user now chooses between another attempt (retryWrongMove) and the
-        // answer (revealAnswer, which runs stop-and-explain). PLAN.md §8.1.
-        preStopUci = playedUci
-        preStopSan = st.historySan
-        pendingWrong = { fenBefore, playedSan: mv.san, expectedUci }
+        if (!grade.deviation) {
+          // Wrong, but nothing deviated: the position ended before the authored
+          // line did, which only happens if the problem's own data is
+          // inconsistent. Say so instead of offering an answer we don't have.
+          set({ error: 'This problem could not be graded — try another one' })
+          return
+        }
+
+        // WRONG LINE: say only that it failed. Nothing is revealed here — not
+        // which ply broke, no refutation, no solution move, not even a fresh
+        // eval (no engine call at all) — because the user now chooses between
+        // another attempt (retryWrongMove) and the answer (revealAnswer).
+        pendingDeviation = grade.deviation
         set({
           status: 'wrong_move',
-          fen: chess.fen(),
-          historySan: historyAfter,
           hadStops: true,
-          notice: wrongMoveVerdict(),
+          notice: wrongLineVerdict(),
           stopExplanation: null,
           refutationSan: [],
           refutationStep: -1,
         })
-        return true
       },
 
       retryWrongMove: () => {
@@ -772,45 +861,86 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         if (st.status !== 'wrong_move' || !st.problem) return
         clearTimers()
         epoch++
-        // Rewind to the position before the wrong move (rebuilt from the
-        // problem FEN so the internal game stays consistent).
-        try {
-          chess.load(st.problem.fen)
-          for (const uci of preStopUci) chess.move(uciParts(uci))
-        } catch (e) {
-          set({ error: errMsg(e, 'Could not rewind the position') })
+        // Back to the start of the line. Rewinding only to the ply that failed
+        // would itself be the answer, so the whole line is replayed.
+        if (!rewindToFloor(st.problem)) {
+          set({ error: 'Could not rewind the position' })
           return
         }
-        playedUci = [...preStopUci]
-        pendingWrong = null
+        pendingDeviation = null
         set({
           status: 'solve',
           fen: chess.fen(),
-          historySan: [...preStopSan],
-          // No fix gate: the solution was never shown, so this is a real
-          // second attempt rather than the "play the lesson" retry.
-          requiredFixUci: null,
+          historySan: [...attemptFloorSan],
+          solveStep: playedUci.length,
+          // The fix gate only exists after a reveal; a hidden-answer retry
+          // re-arms whatever gate this attempt started with (usually none).
+          requiredFixUci: pendingFixUci,
           notice: tryAgainNotice(),
           stopExplanation: null,
           refutationSan: [],
           refutationStep: -1,
+          lineComplete: lineIsComplete(st.problem),
         })
       },
 
       revealAnswer: () => {
         const st = get()
-        if (st.status !== 'wrong_move' || !pendingWrong) return
-        const { fenBefore, playedSan, expectedUci } = pendingWrong
-        pendingWrong = null
+        if (st.status !== 'wrong_move' || !st.problem || !pendingDeviation) return
+        const dev = pendingDeviation
+        pendingDeviation = null
+        clearTimers()
+        epoch++
         const myEpoch = epoch
+        // Rewind to the ply that failed and put that move back on the board,
+        // so the explanation is about the position it actually went wrong in.
+        const keep = dev.plyIndex + 1 // playedUci is offset by the setup move
+        const wrongUci = playedUci[keep]
+        try {
+          chess.load(st.problem.fen)
+          for (const uci of playedUci.slice(0, keep)) chess.move(uciParts(uci))
+        } catch (e) {
+          set({ error: errMsg(e, 'Could not rewind the position') })
+          return
+        }
+        preStopUci = playedUci.slice(0, keep)
+        preStopSan = st.historySan.slice(0, keep)
+        playedUci = [...preStopUci]
+        // The failing ply's expected move is what a retry will be gated on.
+        setFloor(preStopUci.length, preStopSan, dev.expectedUci)
+        try {
+          chess.move(uciParts(wrongUci))
+        } catch (e) {
+          set({ error: errMsg(e, 'Could not replay the move') })
+          return
+        }
         set({
-          status: 'showing_refutation',
-          notice: null,
+          fen: chess.fen(),
+          historySan: [...preStopSan, dev.playedSan],
+          solveStep: keep,
           answerRevealed: true,
+          notice: null,
+          requiredFixUci: null,
           refutationSan: [],
           refutationStep: -1,
+          lineComplete: false,
         })
-        void startStop(myEpoch, fenBefore, playedSan, expectedUci)
+        if (dev.side === 'user') {
+          set({ status: 'showing_refutation' })
+          void startStop(myEpoch, dev.fenBefore, dev.playedSan, dev.expectedUci)
+          return
+        }
+        // The user's own moves were fine — they calculated against a defence
+        // the opponent doesn't have to play. No refutation animation: the
+        // engine's continuation after a bad defence teaches the wrong lesson.
+        countAttempt()
+        set({
+          status: 'stopped',
+          stopExplanation: wrongDefenceExplanation({
+            playedSan: dev.playedSan,
+            expectedSan: dev.expectedSan,
+          }),
+        })
       },
 
       retryFromStop: () => {
@@ -830,18 +960,24 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           return
         }
         playedUci = [...preStopUci]
-        // Fix-move semantics: the authored solution move is required to continue.
+        // Fix-move semantics: the authored move for the failing ply is required
+        // to continue — the user's own move, or the defence they mispredicted.
         const fixUci = st.problem.moves[st.solveStep] ?? null
         const fixSan = fixUci ? (uciToSan(chess.fen(), fixUci) ?? fixUci) : null
+        // This attempt restarts at the failing ply, not at the solve position:
+        // the rest of the line is already proven, so replaying it is busywork.
+        setFloor(preStopUci.length, preStopSan, fixUci)
         set({
           status: 'solve',
           fen: chess.fen(),
           historySan: [...preStopSan],
+          solveStep: playedUci.length,
           requiredFixUci: fixUci,
           notice: fixSan ? fixReminder(fixSan) : null,
           stopExplanation: null,
           refutationSan: [],
           refutationStep: -1,
+          lineComplete: lineIsComplete(st.problem),
         })
         refreshEval(myEpoch)
       },
@@ -854,7 +990,8 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         playedUci = []
         preStopUci = []
         preStopSan = []
-        pendingWrong = null
+        pendingDeviation = null
+        setFloor(1, [], null)
         attemptCounted = false
         set({
           status: 'picking',
@@ -872,6 +1009,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           gradeError: null,
           llmAvailable: deps.llm.hasKey(),
           solveStep: 0,
+          lineComplete: false,
           requiredFixUci: null,
           notice: null,
           stopExplanation: null,

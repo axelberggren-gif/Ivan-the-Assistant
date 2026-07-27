@@ -30,12 +30,20 @@ problems store/UI. Phases per PLAN.md §8: read → reason → solve.
 
 ## Recent changes
 
+- Whole-line grading (ADR-0006): `solve.ts` gains **`gradeLine`** — pure, the single source
+  of solve-phase truth — which walks a committed line against the authored one and returns
+  either `correct` or the **first** `LineDeviation` (ply index, whose ply, position before,
+  what was played, what was expected). Even plies are the user's own moves and keep Lichess
+  matching (`isSolutionMove`); odd plies are the replies the user predicted and must be the
+  authored reply. Never grade move by move again — that is the hint the mode exists to avoid.
 - Answer reveal is opt-in (CONTEXT.md, PLAN.md §8.1): `templates.ts` gains
-  `wrongMoveVerdict` (names a move wrong and reveals NOTHING else — no refutation, no
-  solution move; it is what the user reads while choosing), `correctMoveNotice`,
-  `tryAgainNotice`, and an optional `SolvedOpts.sawAnswer` so the solved message
-  distinguishes a self-corrected miss from a stop-and-explain. `wrongMoveExplanation`
-  is unchanged and is now only rendered once the user asks for the answer.
+  `wrongLineVerdict` (says the line failed and reveals NOTHING else — not the failing ply,
+  no refutation, no solution move; it is what the user reads while choosing),
+  `buildingLineNotice`, `tryAgainNotice`, `wrongDefenceExplanation` (for a mispredicted
+  reply — no engine line, since the continuation after a bad defence teaches the wrong
+  lesson), and an optional `SolvedOpts.sawAnswer` so the solved message distinguishes a
+  self-corrected miss from a stop-and-explain. `wrongMoveExplanation` is unchanged and is
+  now only rendered once the user asks for the answer.
 - Loader degrades instead of dying: an entry that fails structural validation is **dropped**
   (never served, warned about on the console) and the file's remaining problems are
   returned; only a file with *no* usable entries throws. All-or-nothing validation meant a

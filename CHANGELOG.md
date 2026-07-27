@@ -5,15 +5,22 @@ memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start 
 
 ## 2026-07
 
-- feat(problems): a wrong solve move no longer spends the answer. Every move is now called:
-  a correct one is confirmed, a wrong one is named as wrong **and nothing else** — no
-  refutation, no solution move, no fresh eval — and the attempt pauses at that verdict on a
-  new `wrong_move` status. From there you pick: **"Try again?"** takes the move back with the
-  answer still hidden (a genuine second attempt, not fix-move-gated), or **"Show answer"**
-  runs the existing stop-and-explain, after which retry is fix-gated exactly as before. The
-  solved message says which route you took, so self-correcting without seeing the answer
-  reads differently from a stop-and-explain (owner decision, 2026-07-27; PLAN.md §8.1,
-  CONTEXT.md "Answer reveal")
+- feat(problems): the solve phase now grades a **committed line**, not single moves
+  (ADR-0006). You play the whole thing out — your moves *and* the replies you expect, with
+  take-back and clear while you do — and "Commit my line" is the only checkpoint. Nothing is
+  judged on the way: no move is confirmed, refuted or evaluated on its own, because
+  "correct" after move 1 is a hint. A failed line is named as failed **and nothing else** —
+  not even which ply broke it — on a new `wrong_move` status, and you pick: **"Try again?"**
+  clears the line with the answer still hidden (a genuine second attempt, not fix-gated), or
+  **"Show answer"** reveals it. The reveal is aimed at the ply that actually failed: one of
+  your own moves gets the existing stop-and-explain (refutation animated, your written
+  reasoning quoted), a mispredicted *reply* names the defence you missed with no refutation
+  animation, and either way the retry afterwards is fix-gated on that ply and resumes from
+  there. The solved message says which route you took, so self-correcting a miss reads
+  differently from a stop-and-explain. Opponent replies are no longer auto-played in the
+  solve phase (they cannot be, without leaking the verdict), so
+  `ProblemSessionStatus` drops `'opponent_replying'`. Owner decisions, 2026-07-27; PLAN.md
+  §8.1, CONTEXT.md "Committed line" / "Answer reveal"
 - feat(analysis): deep analysis — run your real games through Stockfish and the coach
   (PLAN.md §5.2a–5.2d, ADR-0005 now accepted). Milestone 5's unbuilt half: a new
   `src/analysis/` module annotates your chess.com games move by move, and the insights screen

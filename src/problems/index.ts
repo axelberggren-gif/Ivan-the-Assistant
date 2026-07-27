@@ -15,15 +15,18 @@ export {
   uciToSan,
   sanLineFromUci,
   isSolutionMove,
+  gradeLine,
   engineLineSummaries,
   formatSanLine,
 } from './solve'
+export type { LineDeviation, LineGrade } from './solve'
 export {
   readCheckComment,
-  wrongMoveVerdict,
-  correctMoveNotice,
+  wrongLineVerdict,
+  buildingLineNotice,
   tryAgainNotice,
   wrongMoveExplanation,
+  wrongDefenceExplanation,
   fixReminder,
   curatedMotifNames,
   solvedMessage,
@@ -32,4 +35,9 @@ export {
   oneLineAttemptNotice,
   exploreHint,
 } from './templates'
-export type { ReadCheckCommentOpts, WrongMoveOpts, SolvedOpts } from './templates'
+export type {
+  ReadCheckCommentOpts,
+  WrongMoveOpts,
+  WrongDefenceOpts,
+  SolvedOpts,
+} from './templates'
