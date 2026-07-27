@@ -1,10 +1,11 @@
 import { Chessboard } from 'react-chessboard'
 import type { Piece, Square } from 'react-chessboard/dist/chessboard/types'
 import { useProblems } from '../store/problemsContext'
+import { useClickToMove } from './useClickToMove'
 
 /**
- * Problems-mode board: same look and drop handling as BoardPanel, but reading
- * from the problems store. Pieces are draggable in the solve phase (the real
+ * Problems-mode board: same look and move handling as BoardPanel, but reading
+ * from the problems store. Pieces are movable in the solve phase (the real
  * attempt) and in the reason phase (a throwaway scratchpad for trying lines);
  * the read phase is hands-off by design (PLAN §8.1).
  */
@@ -18,24 +19,30 @@ export default function ProblemBoard() {
   const exploring = status === 'reason'
   const draggable = status === 'solve' || exploring
 
+  // In the reason phase the board is a scratchpad — moves feed the tried line,
+  // never the real attempt.
+  const move = exploring ? exploreMove : userMove
+
+  // Two ways to play the same move: drag it, or click the piece and then the
+  // square it should land on.
+  const click = useClickToMove({ fen, enabled: draggable, move })
+
   function onPieceDrop(source: Square, target: Square, piece: Piece): boolean {
     const isPromotion =
       piece[1] === 'P' && (target[1] === '8' || target[1] === '1')
-    const promotion = isPromotion ? 'q' : undefined
-    // In the reason phase the board is a scratchpad — moves feed the tried
-    // line, never the real attempt.
-    return exploring
-      ? exploreMove(source, target, promotion)
-      : userMove(source, target, promotion)
+    return move(source, target, isPromotion ? 'q' : undefined)
   }
 
   return (
     <div
+      ref={click.boardRef}
       className={`board-wrap${status === 'showing_refutation' ? ' board-refuting' : ''}`}
     >
       <Chessboard
         position={fen}
         onPieceDrop={onPieceDrop}
+        onSquareClick={click.onSquareClick}
+        customSquareStyles={click.squareStyles}
         boardOrientation={userColor}
         arePiecesDraggable={draggable}
         animationDuration={250}
