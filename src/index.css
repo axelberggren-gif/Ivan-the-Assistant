@@ -41,6 +41,11 @@
 
   --font: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-alt: 'Manrope', system-ui, sans-serif;
+
+  /* phone chrome — the bottom nav and the collapsed board sheet */
+  --mobile-nav-h: 72px;
+  --sheet-peek-h: 78px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 * {
@@ -474,7 +479,9 @@ button {
 }
 
 .eval-white {
-  color: #e8e6e1;
+  /* the label sits below the bar on the page, not on it — a dark-theme
+     leftover, it was near-invisible on the meadow background */
+  color: var(--text);
 }
 
 .eval-black {
@@ -1609,6 +1616,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 10px;
 }
@@ -1619,11 +1627,17 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .explore-actions {
   display: flex;
   gap: 6px;
+}
+
+/* a phone-width panel would otherwise break "Take back" across two lines */
+.explore-actions .btn {
+  white-space: nowrap;
 }
 
 .explore-line {
@@ -2179,11 +2193,12 @@ button {
     bottom: 0;
     left: 0;
     right: 0;
-    height: 72px;
+    height: calc(var(--mobile-nav-h) + var(--safe-bottom));
     display: flex;
     justify-content: space-around;
     align-items: flex-start;
     padding-top: 11px;
+    padding-bottom: var(--safe-bottom);
     background: rgba(255, 255, 255, 0.9);
     backdrop-filter: blur(14px);
     border-top: 1px solid var(--border);
@@ -2215,7 +2230,8 @@ button {
   }
 
   .app-main {
-    padding-bottom: 96px;
+    /* 28px of side padding is a fifth of a phone screen — the board needs it. */
+    padding: 14px 12px calc(var(--mobile-nav-h) + var(--safe-bottom) + 20px);
   }
 
   .app-header {
@@ -2710,5 +2726,237 @@ button {
 
   .analysis-chip-track {
     display: none;
+  }
+}
+
+/* ------------------------------------------ mobile board + bottom sheet */
+
+/*
+ * Phone layout (BoardSheet.tsx). Two things were broken here:
+ *
+ * 1. Alignment. The board was sized `min(88vmin, 560px)` — 343px on a 390px
+ *    phone — and laid out beside a 34px eval column inside 28px of page
+ *    padding: 447px of content in a 390px viewport, so it hung off the right
+ *    edge. It now measures itself from the space that actually exists.
+ * 2. Everything that is not the board started below the fold. The side column
+ *    becomes a sheet pinned above the nav; its peek row always carries the
+ *    phase, the coach's last word, and the one button that moves you on, and
+ *    it expands over the board on tap, swipe, or a status worth reading.
+ *
+ * Desktop keeps the old two-column layout: the sheet chrome is display:none
+ * and `.sheet-body` is just the flex column `.trainer-side` used to be.
+ */
+
+.sheet-handle-zone,
+.sheet-scrim {
+  display: none;
+}
+
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+}
+
+@media (max-width: 720px) {
+  /* -------- board: fit the width that is left, never overflow it -------- */
+
+  .trainer {
+    gap: 0;
+    width: 100%;
+    /* clear the collapsed sheet so the last rank is never behind it */
+    padding-bottom: var(--sheet-peek-h);
+    /* the board is width-bound on a phone, so centre the height it cannot use */
+    justify-content: center;
+  }
+
+  .trainer-board-area {
+    width: 100%;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .board-wrap {
+    flex: 1 1 auto;
+    width: auto;
+    /* the 320px floor was itself an overflow on a small phone */
+    min-width: 0;
+  }
+
+  .eval-bar {
+    /* wide enough for "-10.0" — a narrower column spills over the board */
+    width: 28px;
+    gap: 6px;
+  }
+
+  .eval-bar-track {
+    width: 11px;
+    min-height: 0;
+  }
+
+  .eval-bar-label {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  /* ------------------------------- the sheet ---------------------------- */
+
+  .trainer-side {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--mobile-nav-h) + var(--safe-bottom));
+    z-index: 25;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    padding: 0;
+    /* the column gap would push the peek row out of a collapsed sheet */
+    gap: 0;
+    background: var(--bg-panel);
+    /* no border: a 1px box-sizing crumb is enough to make the peek scrollable */
+    border-radius: 24px 24px 0 0;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.14);
+    overflow: hidden;
+    /*
+     * Grown rather than slid up: a translated sheet keeps its collapsed body
+     * below the fold but still *behind* the frosted nav, where it shows
+     * through. Growing the box means there is never anything under the nav.
+     */
+    height: var(--sheet-peek-h);
+    transition: height 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+
+  .trainer-side[data-open='true'] {
+    height: min(76dvh, 560px);
+  }
+
+  .sheet-handle-zone {
+    display: block;
+    /* never shrink: a collapsed sheet is exactly this row */
+    flex: none;
+    height: var(--sheet-peek-h);
+    padding: 8px 14px 10px;
+    /* the grabber is the swipe target, so it must not scroll with the body */
+    touch-action: none;
+  }
+
+  .sheet-grabber {
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 0 auto 10px;
+    border-radius: 999px;
+    background: var(--border);
+  }
+
+  .sheet-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sheet-toggle {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    appearance: none;
+    border: none;
+    background: none;
+    padding: 0;
+    text-align: left;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .sheet-peek-text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .sheet-peek-title,
+  .sheet-peek-sub {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .sheet-peek-title {
+    font: 800 14px var(--font);
+  }
+
+  .sheet-peek-sub {
+    font: 600 12px var(--font);
+    color: var(--text-dim);
+    margin-top: 1px;
+  }
+
+  .sheet-chevron {
+    flex: none;
+    font-size: 11px;
+    color: var(--text-faint);
+  }
+
+  .sheet-action {
+    flex: none;
+    max-width: 48%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .sheet-body {
+    /* whatever the peek row leaves — zero while collapsed */
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    /*
+     * Sides only. Vertical padding is not shrinkable, so it would survive the
+     * collapse as a sliver of scrollable overflow and let the peek row drift
+     * out of the sheet — the tail spacing is a child margin instead.
+     */
+    padding: 0 12px;
+    gap: 12px;
+  }
+
+  .sheet-body > :last-child {
+    margin-bottom: 20px;
+  }
+
+  /* inside the sheet the panels are the sheet — drop the floating-card look */
+  .sheet-body .panel {
+    padding: 14px 16px;
+    box-shadow: none;
+  }
+
+  .sheet-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 24;
+    background: rgba(20, 30, 22, 0.34);
+    animation: fade-in 0.2s ease;
+  }
+
+  /* what the peek row already says, so the body does not repeat it */
+  .sheet-dup {
+    display: none;
+  }
+}
+
+/*
+ * Portrait only: keep the square board clear of the header and the sheet peek.
+ * In landscape the width is the binding constraint anyway, and this cap would
+ * shrink the board to nothing.
+ */
+@media (max-width: 720px) and (orientation: portrait) {
+  .board-wrap {
+    max-width: calc(100dvh - 250px);
   }
 }
