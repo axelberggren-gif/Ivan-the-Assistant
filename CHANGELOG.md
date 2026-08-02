@@ -3,6 +3,24 @@
 Newest first. One line per PR, added in the same PR. This file is the session-to-session
 memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start ritual.
 
+## 2026-08
+
+- fix(problems): stop giving the answer away while you are still solving (ADR-0007).
+  ADR-0006 sealed the commit gate but not the panel around it: the reasoning coach's
+  feedback — which is generated from the authored solution and lists the moves you missed,
+  in notation — was published the moment grading finished and rendered for the whole solve
+  phase, sitting directly under "Try again? / Show answer"; the engine lines, whose first
+  line *is* the solution, were one click away behind a toggle the entire time; and the app
+  nudged you toward them ("Reveal engine lines & solve", "check yourself against the engine
+  lines"). Now: while an attempt is live, the only thing on screen about the answer is what
+  you played. The wrong-line gate is the verdict and two buttons, full stop. Everything else
+  arrives together when the attempt ends — solved, or stopped after you asked — and a retry
+  re-seals it. The store enforces this by holding the data in closures rather than state
+  (provable in `problems.test.ts`; the panel guards are a second lock), so grading still
+  happens on submit and nobody waits for it later. The eval bar is masked for the whole
+  attempt too, which also fixes a wrong number: no engine runs during the solve phase, so
+  the bar had been showing the starting position's eval next to a board several plies on
+
 ## 2026-07
 
 - feat(problems): the solve phase now grades a **committed line**, not single moves

@@ -32,6 +32,7 @@ export {
   solvedMessage,
   setupMoveNotice,
   selfCheckNotice,
+  answerHeldNotice,
   oneLineAttemptNotice,
   exploreHint,
 } from './templates'

@@ -333,9 +333,11 @@ and paste the resulting notation into their notes with one click, so they only h
 the *why* — they motivate the line rather than transcribe it. Scratch moves are throwaway
 and never count as a solve attempt. The **reasoning coach** (BYOK LLM, §8.3) compares this
 prose against Stockfish's lines — never calculating itself — and reports: what you got
-right, what you missed (*"after Bxe4, Re8 pins the rook"*), what's wrong. Without an API
-key, the phase still runs: the user self-checks against the revealed engine line (graceful
-degradation).
+right, what you missed (*"after Bxe4, Re8 pins the rook"*), what's wrong. **That report is
+written on submit but shown after the attempt** (ADR-0007) — it names solution moves, so
+reading it before phase 3 would hand over the answer. Without an API key, the phase still
+runs: the user self-checks against the engine lines, which arrive at the same point
+(graceful degradation).
 
 **Phase 3 — Solve (execute the committed line).**
 The user plays out the **whole line** — their own moves *and* the replies they expect — and
@@ -352,6 +354,11 @@ rules:
 - **A failed line is named as failed and nothing more** — not even which ply broke it. From
   there the user chooses: **"Try again?"** clears the line with the answer still hidden (a
   genuine second attempt, not fix-move-gated), or **"Show answer"** reveals it.
+- **Nothing derived from the solution is on screen while an attempt is live** (ADR-0007):
+  no coach feedback, no engine lines, no eval — through the whole solve phase and the
+  wrong-line gate, which is the verdict plus the two buttons and nothing else. All of it
+  appears at a terminal state (solved, or stopped after "Show answer") and a retry re-seals
+  it. The store holds the data back; the panel guards are a second lock.
 - **The reveal is targeted at the ply that failed.** One of the user's own moves ⇒ the
   existing **stop-and-explain** (rewind, refutation animated, comment referencing the
   user's *written* reasoning — "you said the knight was safe, here's why it isn't"). A
