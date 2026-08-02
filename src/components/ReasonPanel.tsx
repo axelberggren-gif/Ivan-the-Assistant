@@ -1,5 +1,5 @@
 import { useProblems } from '../store/problemsContext'
-import { exploreHint, formatSanLine } from '../problems'
+import { answerHeldNotice, exploreHint, formatSanLine, selfCheckNotice } from '../problems'
 
 /**
  * Phase 2 — Reasoning (PLAN §8.1, the heart of the exercise): show the read
@@ -106,19 +106,16 @@ export default function ReasonPanel() {
         disabled={grading}
       >
         {grading && <span className="spinner" aria-hidden="true" />}
-        {grading
-          ? 'Grading your reasoning…'
-          : llmAvailable
-            ? 'Get feedback & solve'
-            : 'Reveal engine lines & solve'}
+        {grading ? 'Grading your reasoning…' : 'Lock it in & solve'}
       </button>
 
-      {!llmAvailable && (
-        <p className="reason-hint">
-          Add your own Anthropic API key in settings (⚙) to get written feedback on your
-          reasoning — it stays in this browser (BYOK).
-        </p>
-      )}
+      {/*
+        Nothing is revealed by submitting any more (ADR-0007) — the button used
+        to promise engine lines, and the coach's feedback used to land on the
+        solve panel. Both now wait for the attempt to finish.
+      */}
+      <p className="reason-hint">{answerHeldNotice()}</p>
+      {!llmAvailable && <p className="reason-hint">{selfCheckNotice()}</p>}
     </div>
   )
 }

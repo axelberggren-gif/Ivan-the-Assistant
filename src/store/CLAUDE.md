@@ -34,8 +34,23 @@
   → stop-and-explain at the failing ply → fix-gated retry; the reasoning coach failing (or
   no key) degrades to the engine-line reveal, never blocks the phase.
 
+- **`engineLines` / `feedback` / `gradeError` are empty while an attempt is live**
+  (ADR-0007). They are computed early and held in closures (`heldEngineLines`,
+  `heldFeedback`, `heldGradeError`); `publishAnswer()` puts them in state on the way into
+  `solved` or `stopped`, `sealAnswer()` takes them back on either retry, `resetHeld()` drops
+  them on a new problem. This is a store invariant, not a rendering choice — there is no
+  React test tooling here, so `problems.test.ts` is the only place it can be proven. Do not
+  publish them from anywhere else.
+
 ## Recent changes
 
+- Sealed solve phase (ADR-0007): `problems.ts` holds the answer material out of state for
+  the duration of an attempt. `submitReadCheck` fills `heldEngineLines` instead of
+  `engineLines`; `submitReasoning` fills `heldFeedback` / `heldGradeError` and feeds the LLM
+  from the closure. `publishAnswer()` fires at the three terminal points (a correct
+  `commitLine`, `startStop` landing in `stopped` including its engine-failure fallback, and
+  the mispredicted-defence branch of `revealAnswer`); `sealAnswer()` fires on
+  `retryWrongMove` and `retryFromStop`.
 - Commit-the-line solve loop in `problems.ts` (ADR-0006): `userMove` no longer filters by
   side or judges anything — it appends a ply — and `undoLineMove` / `clearLine` /
   `commitLine` drive the rest. `lineComplete` (state) gates the commit button;

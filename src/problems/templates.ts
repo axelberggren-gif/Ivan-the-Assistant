@@ -295,8 +295,22 @@ export function exploreHint(): string {
 /** Reason-phase fallback when there is no BYOK key (engine-only self-check). */
 export function selfCheckNotice(): string {
   return (
-    'No API key set, so no reasoning coach — compare your written reasoning ' +
-    "against the engine lines yourself: what did you see, what didn't you?"
+    'No API key set, so no reasoning coach — you self-check instead: once the attempt ' +
+    "is over, compare what you wrote against the engine lines. What did you see, what didn't? " +
+    'Add your own Anthropic key in settings (⚙) for written feedback; it stays in this browser.'
+  )
+}
+
+/**
+ * Reason-phase note on when the verdict arrives. The grading happens as the
+ * user submits — so nobody waits for it — but it names solution moves, so it
+ * is held until the attempt is over (ADR-0007). Saying so up front keeps the
+ * silence during phase 3 from reading as something being broken.
+ */
+export function answerHeldNotice(): string {
+  return (
+    'Once you submit, the board is yours alone: no feedback, no engine lines, no eval ' +
+    'until the attempt is over. Write down everything you saw — that is what gets graded.'
   )
 }
 

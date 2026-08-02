@@ -15,7 +15,12 @@ const STATUS_TEXT: Partial<Record<ProblemSessionStatus, string>> = {
  * the replies they predicted — and commit it as one answer. Nothing is judged
  * until the commit; a failed line is then named as failed and nothing more,
  * and the user picks another attempt or the answer (stop-and-explain, then
- * fix-move-gated retry). Engine lines are revealed once the attempt is over.
+ * fix-move-gated retry).
+ *
+ * While an attempt is live, the only thing on this panel about the answer is
+ * what the user played (ADR-0007). The coach's feedback and the engine lines
+ * appear at 'stopped' or 'solved' and nowhere else — the store enforces that by
+ * withholding the data, and `attemptOver` below is the second lock.
  */
 export default function SolvePanel() {
   const status = useProblems((s) => s.status)
@@ -39,11 +44,15 @@ export default function SolvePanel() {
   const nextProblem = useProblems((s) => s.nextProblem)
   const backToPicker = useProblems((s) => s.backToPicker)
 
-  // Engine lines stay collapsed while solving (no free hints) and open
-  // automatically once the attempt is over.
+  // The attempt is over: the answer material is allowed on screen.
+  const attemptOver = status === 'stopped' || status === 'solved'
+
+  // Engine lines open automatically once the attempt is over, and close again
+  // if the user starts another one (a retry after a reveal).
   const [linesOpen, setLinesOpen] = useState(false)
   useEffect(() => {
     if (status === 'stopped' || status === 'solved') setLinesOpen(true)
+    else if (status === 'solve') setLinesOpen(false)
   }, [status])
 
   const solving = status === 'solve'
@@ -158,9 +167,9 @@ export default function SolvePanel() {
         </div>
       )}
 
-      {gradeError && <p className="grade-error">{gradeError}</p>}
+      {attemptOver && gradeError && <p className="grade-error">{gradeError}</p>}
 
-      {feedback && (
+      {attemptOver && feedback && (
         <div className="reason-feedback">
           <div className="reason-feedback-title">Reasoning coach</div>
           <ul className="feedback-points">
@@ -187,7 +196,7 @@ export default function SolvePanel() {
         </div>
       )}
 
-      {engineLines.length > 0 && (
+      {attemptOver && engineLines.length > 0 && (
         <div className="engine-lines">
           <button
             type="button"

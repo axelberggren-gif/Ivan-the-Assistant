@@ -30,6 +30,12 @@ problems store/UI. Phases per PLAN.md §8: read → reason → solve.
 
 ## Recent changes
 
+- Nothing revealed during a live attempt (ADR-0007): `templates.ts` gains
+  `answerHeldNotice` (reason phase — says the grading happens on submit but the feedback,
+  engine lines and eval all wait for the attempt to end), and `selfCheckNotice` is rewritten
+  for the new timing and finally wired up (it was exported but unused, and its old text told
+  keyless users to compare against engine lines that are now sealed). No prose here changes
+  what the coach *says* — only when the store lets it be read.
 - Whole-line grading (ADR-0006): `solve.ts` gains **`gradeLine`** — pure, the single source
   of solve-phase truth — which walks a committed line against the authored one and returns
   either `correct` or the **first** `LineDeviation` (ply index, whose ply, position before,

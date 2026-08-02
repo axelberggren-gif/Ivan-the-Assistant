@@ -378,8 +378,9 @@ describe('createProblemsStore', () => {
     expect(st.readReport?.comment).toBeTruthy()
     // Eval bar is White-perspective; mate for White maps near +10000.
     expect(st.evalCp).toBeGreaterThan(9000)
-    // Ground-truth engine lines are revealed for the reason phase.
-    expect(st.engineLines.length).toBeGreaterThan(0)
+    // The engine's lines are computed here but NOT published — line one is the
+    // solution and the attempt has not happened yet (ADR-0007).
+    expect(st.engineLines).toEqual([])
   })
 
   it('read check: wrong answers are called out', async () => {
@@ -398,14 +399,22 @@ describe('createProblemsStore', () => {
     store.getState().submitReasoning()
     await vi.advanceTimersByTimeAsync(0)
 
-    const st = store.getState()
+    let st = store.getState()
     expect(llm.gradeReasoning).not.toHaveBeenCalled()
     expect(st.status).toBe('solve')
     expect(st.solveStep).toBe(1)
     expect(st.llmAvailable).toBe(false)
     expect(st.feedback).toBeNull()
     expect(st.gradeError).toBeNull()
-    expect(st.engineLines.length).toBeGreaterThan(0) // self-check material
+    expect(st.engineLines).toEqual([]) // sealed until the attempt is over
+
+    // The self-check material is still there — it just waits for the solve.
+    playLine('b2b7', 'h8g8', 'a1a8')
+    store.getState().commitLine()
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    expect(st.status).toBe('solved')
+    expect(st.engineLines.length).toBeGreaterThan(0)
   })
 
   it('reasoning with a key grades the prose against the solution line', async () => {
@@ -420,7 +429,8 @@ describe('createProblemsStore', () => {
     expect(st.status).toBe('solve')
     expect(st.solveStep).toBe(1)
     expect(st.llmAvailable).toBe(true)
-    expect(st.feedback).toEqual(FEEDBACK)
+    // Graded on submit so nobody waits later — but held, not published.
+    expect(st.feedback).toBeNull()
     expect(st.gradeError).toBeNull()
 
     expect(llm.gradeReasoning).toHaveBeenCalledTimes(1)
@@ -430,10 +440,11 @@ describe('createProblemsStore', () => {
     expect(input.reasoning).toMatch(/discovered check/)
     // Authored solution as SAN (user + opponent moves, user first).
     expect(input.solutionSan).toEqual(['Rb7+', 'Kg8', 'Qa8#'])
-    expect(input.engineLines).toEqual(store.getState().engineLines)
+    // The coach still gets the engine lines even though the user cannot see them.
+    expect(input.engineLines.length).toBeGreaterThan(0)
   })
 
-  it('grading failure sets a user-readable error and still reaches solve', async () => {
+  it('grading failure is held too, and surfaces once the attempt is over', async () => {
     llm.setKey('sk-test')
     llm.gradeReasoning.mockRejectedValueOnce(new Error('rate limited'))
     await toReason()
@@ -441,10 +452,104 @@ describe('createProblemsStore', () => {
     store.getState().submitReasoning()
     await vi.advanceTimersByTimeAsync(0)
 
-    const st = store.getState()
+    let st = store.getState()
     expect(st.status).toBe('solve')
     expect(st.feedback).toBeNull()
+    expect(st.gradeError).toBeNull() // held: it points at sealed engine lines
+
+    playLine('b2b7', 'h8g8', 'a1a8')
+    store.getState().commitLine()
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    expect(st.status).toBe('solved')
     expect(st.gradeError).toBe('rate limited')
+  })
+
+  /**
+   * ADR-0007. The panel used to show the reasoning coach's feedback (which
+   * names the moves the reasoning missed) and an engine-lines toggle (whose
+   * first line IS the solution) for the whole solve phase — including at the
+   * wrong-line gate, right next to "Try again?". The rule now: while an attempt
+   * is live, nothing derived from the solution is in state at all.
+   */
+  it('seals the answer material for as long as an attempt is live (ADR-0007)', async () => {
+    llm.setKey('sk-test')
+    await toReason()
+    store.getState().setReasoning('Rb7+ discovers check and Qa8 mates.')
+    store.getState().submitReasoning()
+    await vi.advanceTimersByTimeAsync(0)
+
+    /** Nothing about the answer may be in state right now. */
+    function expectSealed(): void {
+      const st = store.getState()
+      expect(st.feedback).toBeNull()
+      expect(st.gradeError).toBeNull()
+      expect(st.engineLines).toEqual([])
+    }
+
+    // Building the line.
+    expectSealed()
+    playLine('a1a2')
+    expectSealed()
+    playLine('h8h7', 'a2a3')
+    expectSealed()
+
+    // The wrong-line gate: verdict and two buttons, nothing else.
+    store.getState().commitLine()
+    expect(store.getState().status).toBe('wrong_move')
+    expectSealed()
+
+    // "Try again?" — a fresh attempt, still sealed.
+    store.getState().retryWrongMove()
+    expect(store.getState().status).toBe('solve')
+    expectSealed()
+
+    // Commit another wrong line and ask for the answer this time.
+    playLine('a1a2', 'h8h7', 'a2a3')
+    store.getState().commitLine()
+    store.getState().revealAnswer()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().status).toBe('showing_refutation')
+    expectSealed() // still sealed while the refutation animates
+
+    // Landing in 'stopped' is what opens it.
+    await vi.advanceTimersByTimeAsync(900 * 3)
+    let st = store.getState()
+    expect(st.status).toBe('stopped')
+    expect(st.feedback).toEqual(FEEDBACK)
+    expect(st.engineLines.length).toBeGreaterThan(0)
+
+    // Retrying after the reveal is a live attempt again — it re-seals.
+    store.getState().retryFromStop()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().status).toBe('solve')
+    expectSealed()
+
+    // …and solving publishes it for good.
+    playLine('b2b7', 'h8g8', 'a1a8')
+    store.getState().commitLine()
+    await vi.advanceTimersByTimeAsync(0)
+    st = store.getState()
+    expect(st.status).toBe('solved')
+    expect(st.feedback).toEqual(FEEDBACK)
+    expect(st.engineLines.length).toBeGreaterThan(0)
+  })
+
+  it('a fresh problem starts sealed again', async () => {
+    llm.setKey('sk-test')
+    await toSolve()
+    playLine('b2b7', 'h8g8', 'a1a8')
+    store.getState().commitLine()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.getState().engineLines.length).toBeGreaterThan(0)
+
+    rigRandom('p2')
+    store.getState().nextProblem()
+    await vi.advanceTimersByTimeAsync(600)
+    const st = store.getState()
+    expect(st.status).toBe('read')
+    expect(st.engineLines).toEqual([])
+    expect(st.feedback).toBeNull()
   })
 
   it('solve happy path: the whole line is played out, then committed', async () => {

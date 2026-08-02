@@ -69,9 +69,15 @@ export interface ProblemsState {
    * user commits it into `reasoning` with `commitExploreToReasoning`.
    */
   exploreSan: string[]
-  /** Engine ground truth revealed in the reason phase. */
+  /**
+   * Engine ground truth. Empty while an attempt is live — the top line IS the
+   * solution — and published only once the attempt is over (ADR-0007).
+   */
   engineLines: EngineLineSummary[]
-  /** Reasoning-coach feedback (BYOK); null without a key or before grading. */
+  /**
+   * Reasoning-coach feedback (BYOK); null without a key, before grading, and
+   * for as long as an attempt is live (ADR-0007) — it names solution moves.
+   */
   feedback: ReasoningFeedback | null
   /** User-readable grading failure — the phase degrades to engine lines. */
   gradeError: string | null
@@ -273,12 +279,31 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
    * `wrong_move` gate until the user asks for the answer.
    */
   let pendingDeviation: LineDeviation | null = null
+  /**
+   * The answer material: the engine's lines for the solve position and the
+   * reasoning coach's verdict on the user's prose. Both are computed early —
+   * at the read check and at the reasoning submit, so nobody waits for them —
+   * but everything they contain is derived from the solution, so they are HELD
+   * here, outside state, for as long as an attempt is live (ADR-0007).
+   * `publishAnswer` moves them into state at a terminal status; `sealAnswer`
+   * takes them back when a new attempt starts.
+   */
+  let heldEngineLines: EngineLineSummary[] = []
+  let heldFeedback: ReasoningFeedback | null = null
+  let heldGradeError: string | null = null
   /** attemptedCount is bumped once per problem, on the first terminal state. */
   let attemptCounted = false
 
   function clearTimers(): void {
     for (const t of timers) clearTimeout(t)
     timers = []
+  }
+
+  /** Drop the held answer material (new problem / back to the picker). */
+  function resetHeld(): void {
+    heldEngineLines = []
+    heldFeedback = null
+    heldGradeError = null
   }
 
   /** Record where the current attempt starts (see `attemptFloor`). */
@@ -343,6 +368,23 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       })
     }
 
+    /**
+     * Reveal the answer material. Called ONLY on the way into a terminal
+     * status ('solved', or 'stopped' after the user asked for the answer) —
+     * never while an attempt is live (ADR-0007).
+     */
+    function publishAnswer(): void {
+      set({ engineLines: heldEngineLines, feedback: heldFeedback, gradeError: heldGradeError })
+    }
+
+    /**
+     * Hide it again. A retry — with the answer still hidden or after a reveal —
+     * is a live attempt, and a live attempt shows nothing but the user's line.
+     */
+    function sealAnswer(): void {
+      set({ engineLines: [], feedback: null, gradeError: null })
+    }
+
     /** Refresh evalCp from the current position; non-blocking, never throws. */
     function refreshEval(myEpoch: number): void {
       analyzeCached(chess.fen())
@@ -368,6 +410,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
       preStopUci = []
       preStopSan = []
       pendingDeviation = null
+      resetHeld()
       setFloor(1, [], null)
       attemptCounted = false
       set({
@@ -493,6 +536,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
             if (epoch !== myEpoch) return
             countAttempt()
             set({ status: 'stopped' })
+            publishAnswer() // the attempt is over — the lesson may be shown
           },
           REFUTATION_MOVE_MS * (refutation.length + 1),
         )
@@ -510,6 +554,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
             reasoning,
           }),
         })
+        publishAnswer()
       }
     }
 
@@ -623,11 +668,13 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
             if (epoch !== myEpoch) return
             // Arm the scratch board at the solve position for the reason phase.
             scratch.load(solveFen)
+            // The engine's lines go into the holding pen, not into state: line
+            // one is the solution, and the attempt has not happened yet.
+            heldEngineLines = engineLineSummaries(analysis, get().userColor)
             set({
               status: 'reason',
               readReport: checkRead(answer, solveFen, analysis, get().userColor),
               evalCp: analysisCpWhite(analysis),
-              engineLines: engineLineSummaries(analysis, get().userColor),
               exploreSan: [],
             })
           } catch (e) {
@@ -665,7 +712,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           return
         }
         set({ status: 'grading', llmAvailable, fen: st.solveFen, exploreSan: [] })
-        const { problem, solveFen, reasoning, engineLines } = st
+        const { problem, solveFen, reasoning } = st
         void (async () => {
           try {
             const feedback = await deps.llm.gradeReasoning({
@@ -673,19 +720,22 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
               userColor: get().userColor,
               reasoning,
               solutionSan: sanLineFromUci(solveFen, problem.moves.slice(1)),
-              engineLines,
+              engineLines: heldEngineLines,
             })
             if (epoch !== myEpoch) return
-            set({ status: 'solve', solveStep: 1, lineComplete: false, feedback })
+            // Graded now so nobody waits for it later, but held: the feedback
+            // names the moves the reasoning missed (ADR-0007).
+            heldFeedback = feedback
+            set({ status: 'solve', solveStep: 1, lineComplete: false })
           } catch (e) {
             if (epoch !== myEpoch) return
-            // Degrade gracefully: the engine lines are already on screen.
-            set({
-              status: 'solve',
-              solveStep: 1,
-              lineComplete: false,
-              gradeError: errMsg(e, 'The reasoning coach is unavailable — check yourself against the engine lines'),
-            })
+            // Degrade gracefully: held alongside the engine lines it points at,
+            // and shown with them once the attempt is over.
+            heldGradeError = errMsg(
+              e,
+              'The reasoning coach is unavailable — check yourself against the engine lines',
+            )
+            set({ status: 'solve', solveStep: 1, lineComplete: false })
           }
         })()
       },
@@ -829,6 +879,9 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
             lineComplete: false,
             solvedCount: get().solvedCount + 1,
           })
+          // Solved: the coach's feedback and the engine lines come out now, as
+          // the payoff, alongside the motif reveal (ADR-0007).
+          publishAnswer()
           refreshEval(myEpoch)
           return
         }
@@ -845,6 +898,8 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         // which ply broke, no refutation, no solution move, not even a fresh
         // eval (no engine call at all) — because the user now chooses between
         // another attempt (retryWrongMove) and the answer (revealAnswer).
+        // The answer material stays sealed too: the verdict and the two
+        // buttons are the whole screen (ADR-0007).
         pendingDeviation = grade.deviation
         set({
           status: 'wrong_move',
@@ -882,6 +937,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           refutationStep: -1,
           lineComplete: lineIsComplete(st.problem),
         })
+        sealAnswer() // a fresh attempt — back to nothing but your own line
       },
 
       revealAnswer: () => {
@@ -941,6 +997,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
             expectedSan: dev.expectedSan,
           }),
         })
+        publishAnswer()
       },
 
       retryFromStop: () => {
@@ -979,6 +1036,9 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
           refutationStep: -1,
           lineComplete: lineIsComplete(st.problem),
         })
+        // Playing again, even with the answer already seen: the panel goes
+        // quiet so the board is what you are looking at.
+        sealAnswer()
         refreshEval(myEpoch)
       },
 
@@ -991,6 +1051,7 @@ export function createProblemsStore(deps: ProblemsDeps): ProblemsStore {
         preStopUci = []
         preStopSan = []
         pendingDeviation = null
+        resetHeld()
         setFloor(1, [], null)
         attemptCounted = false
         set({

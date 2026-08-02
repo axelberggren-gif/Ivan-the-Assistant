@@ -58,15 +58,20 @@ export default function ProblemBoard() {
 const CLAMP = 600
 
 /**
- * Problems-mode eval bar (same visuals as EvalBar, problems store). During
- * the read check the bar is masked — showing the engine's eval would give
- * away the verdict the user is being asked to guess.
+ * Problems-mode eval bar (same visuals as EvalBar, problems store). Masked in
+ * two places: during the read check, where showing the engine's eval would give
+ * away the verdict the user is being asked to guess, and for the whole of a
+ * live attempt (ADR-0007). The second one is also a correctness fix — the store
+ * deliberately runs no engine during the solve phase, so the number left in
+ * `evalCp` is the solve position's, not the position now on the board.
  */
+const MASKED_STATUSES: ReadonlySet<string> = new Set(['read', 'solve', 'wrong_move'])
+
 export function ProblemEvalBar() {
   const evalCp = useProblems((s) => s.evalCp)
   const status = useProblems((s) => s.status)
 
-  const masked = status === 'read'
+  const masked = MASKED_STATUSES.has(status)
 
   const clamped = Math.max(-CLAMP, Math.min(CLAMP, evalCp))
   // White's share of the bar: 50% at equality, 100% at +6 or better.
@@ -83,7 +88,7 @@ export function ProblemEvalBar() {
   return (
     <div
       className="eval-bar"
-      title={masked ? 'Engine evaluation hidden until your read check' : `Engine evaluation: ${label}`}
+      title={masked ? 'Engine evaluation is hidden while you work' : `Engine evaluation: ${label}`}
     >
       <div className="eval-bar-track">
         <div className="eval-bar-white" style={{ height: `${whitePct}%` }} />
