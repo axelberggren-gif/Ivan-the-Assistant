@@ -3,6 +3,21 @@
 Newest first. One line per PR, added in the same PR. This file is the session-to-session
 memory for AI agents — `tail -n 40 CHANGELOG.md` is part of the session-start ritual.
 
+## 2026-08
+
+- fix(ui): the board fits the phone, and the coaching panel comes to you. The board was
+  sized `min(88vmin, 560px)` beside a 34px eval column inside 28px of page padding — 447px
+  of content in a 390px viewport — so it hung off the right edge; it now measures itself
+  from the space that actually exists (and the 320px floor that broke small phones is gone).
+  Everything that is not the board used to start below the fold: on phones the side column
+  is now a **bottom sheet** pinned above the nav, whose peek row always carries the phase,
+  the coach's last word, and the one button that moves you on ("Commit my line", "Try
+  again?", "Next problem"). Tap the handle, swipe it, or tap the scrim to open and close;
+  it expands itself for the moments that exist to be read (a failed line, a stop-and-explain,
+  a solve, a new coach notice) and gets out of the way when the board is the thing (the
+  solve phase, a refutation). Both Train and Problems; desktop is unchanged. Also: the eval
+  bar's number was a dark-theme leftover and near-invisible on the meadow background
+
 ## 2026-07
 
 - feat(problems): the solve phase now grades a **committed line**, not single moves

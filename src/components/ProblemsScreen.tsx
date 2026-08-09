@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { LlmAPI, ProblemSessionStatus } from '../types'
 import { useProblems } from '../store/problemsContext'
+import BoardSheet from './BoardSheet'
 import ProblemBoard, { ProblemEvalBar } from './ProblemBoard'
 import ReadCheckPanel from './ReadCheckPanel'
 import ReasonPanel from './ReasonPanel'
 import SolvePanel from './SolvePanel'
 import ApiKeySettings from './ApiKeySettings'
+import { PHASES, phaseIndex, problemPeek, type SheetActionKind } from './sheetPeek'
 
 /**
  * Problems mode (Milestone 6b/6c): three gated phases per problem —
@@ -144,15 +146,6 @@ function StartScreen({ onOpenSettings }: { onOpenSettings: () => void }) {
   )
 }
 
-const PHASES = ['Read', 'Reason', 'Solve'] as const
-
-/** Which of the three gated phases the current status belongs to (PLAN §8.1). */
-function phaseIndex(status: ProblemSessionStatus): number {
-  if (status === 'read') return 0
-  if (status === 'reason' || status === 'grading') return 1
-  return 2
-}
-
 /** Read → Reason → Solve step pills, mirroring the Ivan · Meadow design. */
 function PhaseStepper({ status }: { status: ProblemSessionStatus }) {
   const current = phaseIndex(status)
@@ -180,6 +173,30 @@ function ProblemView({ onOpenSettings }: { onOpenSettings: () => void }) {
   const problem = useProblems((s) => s.problem)
   const userColor = useProblems((s) => s.userColor)
   const backToPicker = useProblems((s) => s.backToPicker)
+  const notice = useProblems((s) => s.notice)
+  const lineComplete = useProblems((s) => s.lineComplete)
+  const solveStep = useProblems((s) => s.solveStep)
+  const commitLine = useProblems((s) => s.commitLine)
+  const retryWrongMove = useProblems((s) => s.retryWrongMove)
+  const retryFromStop = useProblems((s) => s.retryFromStop)
+  const nextProblem = useProblems((s) => s.nextProblem)
+
+  // problem.moves = setup move + alternating plies, so odd indices are the
+  // user's own moves (same reading as SolvePanel).
+  const peek = problemPeek({
+    status,
+    lineComplete,
+    yourTurn: solveStep % 2 === 1,
+    userColor,
+    notice,
+  })
+
+  const runAction = (kind: SheetActionKind) => {
+    if (kind === 'commitLine') commitLine()
+    else if (kind === 'retryWrongMove') retryWrongMove()
+    else if (kind === 'retryFromStop') retryFromStop()
+    else if (kind === 'nextProblem') nextProblem()
+  }
 
   return (
     <div className="trainer problems-view">
@@ -188,8 +205,11 @@ function ProblemView({ onOpenSettings }: { onOpenSettings: () => void }) {
         <ProblemBoard />
       </div>
 
-      <aside className="trainer-side">
-        <PhaseStepper status={status} />
+      <BoardSheet peek={peek} onAction={runAction}>
+        {/* The peek row carries the phase on a phone — see `.sheet-dup`. */}
+        <div className="sheet-dup">
+          <PhaseStepper status={status} />
+        </div>
         <div className="panel trainer-head">
           <div className="trainer-head-row">
             <div>
@@ -223,7 +243,7 @@ function ProblemView({ onOpenSettings }: { onOpenSettings: () => void }) {
         ) : (
           <SolvePanel />
         )}
-      </aside>
+      </BoardSheet>
     </div>
   )
 }

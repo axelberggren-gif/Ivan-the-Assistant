@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ProblemSessionStatus } from '../types'
 import { useProblems } from '../store/problemsContext'
 import { buildingLineNotice, formatSanLine, oneLineAttemptNotice } from '../problems'
+import { solveStatusText } from './sheetPeek'
 
 const STATUS_TEXT: Partial<Record<ProblemSessionStatus, string>> = {
   wrong_move: 'Not correct',
@@ -64,11 +65,7 @@ export default function SolvePanel() {
       <div className={`status-line problem-status-${status}`}>
         <span>
           {solving
-            ? lineComplete
-              ? 'Line complete — commit it when you are ready'
-              : yourTurn
-                ? 'Your move — play the line you calculated'
-                : `Their reply — play the ${userColor === 'white' ? 'Black' : 'White'} move you expect`
+            ? solveStatusText({ lineComplete, yourTurn, userColor })
             : (STATUS_TEXT[status] ?? '')}
         </span>
         {solving && problem && (

@@ -1,22 +1,12 @@
-import type { SessionStatus } from '../types'
 import { useSession } from '../store/context'
 import BoardPanel from './BoardPanel'
+import BoardSheet from './BoardSheet'
 import EvalBar from './EvalBar'
 import DevelopmentMeter from './DevelopmentMeter'
 import FeedbackLog from './FeedbackLog'
 import StopExplainModal from './StopExplainModal'
 import SummaryPanel from './SummaryPanel'
-
-const STATUS_TEXT: Record<SessionStatus, string> = {
-  picking: '',
-  playing: 'Your move',
-  engine_thinking: 'Opponent is thinking…',
-  assessing: 'Coach is checking your move…',
-  showing_refutation: 'Watch how this gets punished…',
-  stopped_blunder: 'Game stopped',
-  out_of_book: 'You reached the end of the book line',
-  complete: 'Session complete',
-}
+import { TRAINER_STATUS_TEXT, trainerPeek } from './sheetPeek'
 
 export default function TrainerScreen() {
   const status = useSession((s) => s.status)
@@ -28,6 +18,11 @@ export default function TrainerScreen() {
 
   const busy = status === 'engine_thinking' || status === 'assessing'
 
+  // On a phone the status line is hoisted into the sheet's peek row, so the
+  // copy inside the head panel is marked a duplicate and hidden there (see
+  // `.sheet-dup` in index.css).
+  const peek = trainerPeek({ status, notice, openingName: opening?.name })
+
   return (
     <div className="trainer">
       <div className="trainer-board-area">
@@ -35,7 +30,7 @@ export default function TrainerScreen() {
         <BoardPanel />
       </div>
 
-      <aside className="trainer-side">
+      <BoardSheet peek={peek}>
         <div className="panel trainer-head">
           <div className="trainer-head-row">
             <div>
@@ -48,17 +43,18 @@ export default function TrainerScreen() {
               Openings
             </button>
           </div>
-          <div className={`status-line status-${status}`}>
+          <div className={`status-line status-${status} sheet-dup`}>
             {busy && <span className="spinner" aria-hidden="true" />}
-            {STATUS_TEXT[status]}
+            {TRAINER_STATUS_TEXT[status]}
           </div>
+          {/* The notice stays: the peek only has room for its first line. */}
           {notice && <div className="coach-notice">{notice}</div>}
         </div>
 
         <DevelopmentMeter />
         {sessionSummary && <SummaryPanel />}
         <FeedbackLog />
-      </aside>
+      </BoardSheet>
 
       {status === 'stopped_blunder' && <StopExplainModal />}
     </div>
